@@ -1,0 +1,19 @@
+{
+  "name": "finora",
+  "version": "2.0.0",
+  "private": true,
+  "description": "FINORA. Trade Beyond Limits. Paper-trading platform for NSE and BSE.",
+  "scripts": {
+    "dev": "node build.mjs --watch",
+    "build": "node build.mjs",
+    "start": "node build.mjs --watch"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-icons": "^5.5.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
