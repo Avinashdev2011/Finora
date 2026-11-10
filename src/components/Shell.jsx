@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FiHome, FiBarChart2, FiStar, FiActivity, FiLayers, FiDroplet, FiDollarSign, FiPieChart, FiZap, FiList, FiBriefcase, FiCreditCard, FiFileText, FiFilter, FiBell, FiBookOpen, FiTool, FiSettings, FiMoreHorizontal, FiSearch, FiMoon, FiSun, FiX, FiChevronDown } from 'react-icons/fi';
 import { useLive, getS, mutate, available, getToasts, notify } from '../lib/engine.js';
-import { searchSyms, marketOpen, SESSIONS, M, chg, chgp } from '../lib/market.js';
+import { searchSyms, marketOpen, SESSIONS, M, chg, chgp, feed } from '../lib/market.js';
+import DataGate from './DataGate.jsx';
 import { inr, dt, fmt, sg, pc, cl, arrow } from '../lib/util.js';
 import { useUI, setUI } from '../lib/ui.js';
 import { Link, go, useRoute } from '../lib/router.jsx';
 import { useAuth, logout } from '../lib/auth.js';
+import { Logo } from './Site.jsx';
 import { Modal } from './ui.jsx';
 import Ticket from './Ticket.jsx';
 import GttDialog from './GttDialog.jsx';
 
 export const NAV = [
   { g: 'Trade', items: [['/', 'Home', FiHome], ['/markets', 'Markets', FiBarChart2], ['/watchlist', 'Watchlists', FiStar], ['/charts', 'Charts', FiActivity]] },
-  { g: 'Derivatives', items: [['/derivatives', 'F&O', FiLayers], ['/commodities', 'Commodities', FiDroplet], ['/currency', 'Currency', FiDollarSign]] },
-  { g: 'Invest', items: [['/mutual-funds', 'Mutual funds', FiPieChart], ['/ipo', 'IPO', FiZap]] },
+  { g: 'Invest', items: [['/currency', 'Currency', FiDollarSign], ['/mutual-funds', 'Mutual funds', FiPieChart]] },
   { g: 'Account', items: [['/orders', 'Orders', FiList], ['/portfolio', 'Portfolio', FiBriefcase], ['/funds', 'Funds', FiCreditCard], ['/reports', 'Reports', FiFileText]] },
   { g: 'Discover', items: [['/scanner', 'Scanner', FiFilter], ['/alerts', 'Alerts', FiBell], ['/learn', 'Learn', FiBookOpen], ['/tools', 'Tools', FiTool], ['/settings', 'Settings', FiSettings]] },
 ];
 const ALL = NAV.flatMap((g) => g.items);
-const TOP = [['/', 'Home'], ['/markets', 'Markets'], ['/charts', 'Charts'], ['/portfolio', 'Portfolio'], ['/orders', 'Orders'], ['/derivatives', 'F&O']];
+const TOP = [['/', 'Home'], ['/markets', 'Markets'], ['/charts', 'Charts'], ['/portfolio', 'Portfolio'], ['/orders', 'Orders'], ['/mutual-funds', 'Mutual funds']];
 const BOTTOM = [['/', 'Home', FiHome], ['/markets', 'Markets', FiBarChart2], ['/charts', 'Charts', FiActivity], ['/orders', 'Orders', FiList], ['/portfolio', 'Portfolio', FiBriefcase]];
+const NEEDS = (p) => p === '/' || ['/markets', '/watchlist', '/charts', '/currency', '/scanner', '/portfolio', '/alerts', '/orders'].includes(p) || p.startsWith('/stock');
 const isActive = (path, k) => (k === '/' ? path === '/' : path === k || path.startsWith(k + '/') || (k === '/markets' && path.startsWith('/stock')));
 
 function Palette() {
@@ -31,7 +33,7 @@ function Palette() {
   const pick = (r) => { setUI({ palette: false }); go(r.t === 'page' ? r.k : '/stock/' + r.k); };
   return (
     <Modal title="Search" onClose={() => setUI({ palette: false })}>
-      <div className="picker big"><FiSearch className="pi" /><input ref={ref} value={q} placeholder="Search stocks, indices, commodities or pages" aria-label="Search"
+      <div className="picker big"><FiSearch className="pi" /><input ref={ref} value={q} placeholder="Search stocks, ETFs, indices or pages" aria-label="Search"
         onChange={(e) => { setQ(e.target.value); setHi(0); }}
         onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); setHi((h) => Math.min(h + 1, res.length - 1)); } else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(0, h - 1)); } else if (e.key === 'Enter' && res[hi]) pick(res[hi]); }} /></div>
       <div className="results">
@@ -59,8 +61,8 @@ export default function Shell({ children, fill, title }) {
   return (
     <div className="shell">
       <header className="top">
-        <Link to="/" className="brand" aria-label="FINORA home"><svg width="30" height="30" viewBox="0 0 72 72" role="img" aria-label="FINORA"><rect width="72" height="72" rx="18" fill="#6B5BF5" /><path d="M22 54V20h26v8H31v6h12v8H31v12z" fill="#fff" /></svg><span className="bname">FINORA</span></Link>
-        <div className="ticks" aria-label="Index prices">{['NIFTY', 'SENSEX', 'BANKNIFTY'].map((k) => <Link key={k} to={'/stock/' + k} className="tickr"><b>{k}</b><span className={'mono ' + cl(chgp(k))}>{fmt(M[k].ltp)} {arrow(chgp(k))} {sg(chg(k))} ({pc(chgp(k))})</span></Link>)}</div>
+        <Link to="/" className="brand" aria-label="FINORA home"><Logo /><span className="bname">FINORA</span></Link>
+        <div className="ticks" aria-label="Index prices">{['NIFTY', 'SENSEX', 'BANKNIFTY'].filter((k) => M[k].ok).map((k) => <Link key={k} to={'/stock/' + k} className="tickr"><b>{k}</b><span className={'mono ' + cl(chgp(k))}>{fmt(M[k].ltp)} {arrow(chgp(k))} {sg(chg(k))} ({pc(chgp(k))})</span></Link>)}</div>
         <button className="searchbtn" onClick={() => setUI({ palette: true })} aria-label="Search"><FiSearch /><span>Search for anything [Ctrl + K]</span></button>
         <nav className="tnav" aria-label="Primary">
           {TOP.map(([k, n]) => <Link key={k + n} to={k} className={isActive(path, k) ? 'on' : ''} aria-current={isActive(path, k) ? 'page' : undefined}>{n}</Link>)}
@@ -69,8 +71,8 @@ export default function Shell({ children, fill, title }) {
           </div>
         </nav>
         <span className="grow" />
-        <span className="chip sim hide-s" title="Prices are generated by a built-in simulator">SIMULATED FEED</span>
-        <span className="chip hide-s" title={SESSIONS.EQ[2] + ', Monday to Friday'}><i className={'dot' + (open ? ' on' : '')} />{S.simClosed ? 'Demo: running while closed' : open ? 'Market open' : 'Market closed'}</span>
+        <span className="chip hide-s" title={SESSIONS.EQ + '. Prices come from a public delayed feed.'}><i className={'dot' + (feed.status === 'ok' && open ? ' on' : '')} />{feed.status !== 'ok' ? 'Data not connected' : open ? 'Market open · live' : 'Market closed · last close'}</span>
+        <span className="chip sim hide-s" title="Trading uses virtual money. No real orders are placed.">VIRTUAL MONEY</span>
         <div className="bal"><small>Available</small><b className="mono">{inr(available())}</b></div>
         <div className="pop">
           <button className="iconbtn" aria-label="Notifications" onClick={() => setUI({ notifs: !ui.notifs })}><FiBell />{unread > 0 && <i className="badge">{Math.min(unread, 9)}</i>}</button>
@@ -79,9 +81,9 @@ export default function Shell({ children, fill, title }) {
         </div>
         <button className="iconbtn" onClick={toggleTheme} aria-label="Toggle theme">{dark ? <FiSun /> : <FiMoon />}</button>
         <div className="menuwrap"><button className="avatar" aria-label="Account" aria-expanded={acct} onClick={() => setAcct(!acct)}>{(user?.name || 'T').trim()[0].toUpperCase()}</button>
-          {acct && <div className="menu" onMouseLeave={() => setAcct(false)}><div className="mhead"><b>{user?.name || 'Trader'}</b><small className="mut">{user?.guest ? 'Guest demo' : user?.email}</small></div><Link to="/settings" onClick={() => setAcct(false)}>Settings</Link><Link to="/funds" onClick={() => setAcct(false)}>Funds</Link><Link to="/welcome" onClick={() => setAcct(false)}>Website</Link><button onClick={() => { logout(); go('/welcome'); }}>Log out</button></div>}</div>
+          {acct && <div className="menu" onMouseLeave={() => setAcct(false)}><div className="mhead"><b>{user?.name || 'Trader'}</b><small className="mut">{user?.email}</small></div><Link to="/settings" onClick={() => setAcct(false)}>Settings</Link><Link to="/funds" onClick={() => setAcct(false)}>Funds</Link><Link to="/welcome" onClick={() => setAcct(false)}>Website</Link><button onClick={() => { logout(); go('/welcome'); }}>Log out</button></div>}</div>
       </header>
-      <main id="main" className={'main' + (fill ? ' fill' : '')}><div className="route">{children}</div></main>
+      <main id="main" className={'main' + (fill ? ' fill' : '')}><div className="route">{NEEDS(path) && feed.status !== 'ok' ? <DataGate /> : children}</div></main>
       <nav className="bnav" aria-label="Primary mobile">
         {BOTTOM.map(([k, n, I]) => <Link key={k} to={k} className={isActive(path, k) ? 'on' : ''}><I aria-hidden="true" /><span>{n}</span></Link>)}
         <button className={ui.more ? 'on' : ''} onClick={() => setUI({ more: !ui.more })} aria-expanded={ui.more}><FiMoreHorizontal aria-hidden="true" /><span>More</span></button>

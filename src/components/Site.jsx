@@ -5,7 +5,9 @@ import { useAuth, lastPage } from '../lib/auth.js';
 import { M, agg, UNIVERSE, chgp } from '../lib/market.js';
 import { fmt, pc, cl, clamp } from '../lib/util.js';
 
-export const Logo = ({ s = 30 }) => <svg width={s} height={s} viewBox="0 0 72 72" role="img" aria-label="FINORA"><rect width="72" height="72" rx="18" fill="#6B5BF5" /><path d="M22 54V20h26v8H31v6h12v8H31v12z" fill="#fff" /></svg>;
+export const Logo = ({ s = 30 }) => (
+  <svg width={s} height={s} viewBox="0 0 64 64" role="img" aria-label="FINORA"><defs><linearGradient id="fg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#7C6CFF" /><stop offset="1" stopColor="#1F8BFF" /></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#fg)" /><path d="M19 15h30l-5 9H29v6h12l-4.5 8H29v11H19z" fill="#fff" /><path d="M40 49l6-7 4 3 6-8" fill="none" stroke="#4ADE80" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" transform="translate(-6 0) scale(.9) translate(5 4)" /></svg>
+);
 const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* Scroll reveal: adds .in when the element enters the viewport. */
@@ -37,7 +39,7 @@ export function CountUp({ to, prefix = '', suffix = '', dec = 0, ms = 1600 }) {
 /* Tilt-on-hover card with a moving highlight. */
 export function Tilt({ children, className = '', ...r }) {
   const ref = useRef();
-  const mv = (e) => { const el = ref.current, b = el.getBoundingClientRect(), x = (e.clientX - b.left) / b.width, y = (e.clientY - b.top) / b.height; el.style.setProperty('--rx', ((0.5 - y) * 8).toFixed(2) + 'deg'); el.style.setProperty('--ry', ((x - 0.5) * 10).toFixed(2) + 'deg'); el.style.setProperty('--mx', x * 100 + '%'); el.style.setProperty('--my', y * 100 + '%'); };
+  const mv = (e) => { const el = ref.current, b = el.getBoundingClientRect(), x = (e.clientX - b.left) / b.width, y = (e.clientY - b.top) / b.height; el.style.setProperty('--rx', ((0.5 - y) * 3).toFixed(2) + 'deg'); el.style.setProperty('--ry', ((x - 0.5) * 4).toFixed(2) + 'deg'); el.style.setProperty('--mx', x * 100 + '%'); el.style.setProperty('--my', y * 100 + '%'); };
   const lv = () => { const el = ref.current; el.style.setProperty('--rx', '0deg'); el.style.setProperty('--ry', '0deg'); };
   return <div ref={ref} className={'tilt ' + className} onPointerMove={mv} onPointerLeave={lv} {...r}>{children}</div>;
 }
@@ -71,7 +73,7 @@ export function HeroCanvas() {
   return <canvas ref={ref} className="herocv" aria-hidden="true" />;
 }
 
-/* Mini terminal chart using the simulated feed. Candles draw in, then follow live ticks. */
+/* Mini chart of real 5-minute candles. Candles draw in once, then it only redraws when data changes. */
 export function MiniChart({ id = 'NIFTY', n = 56 }) {
   const ref = useRef();
   useEffect(() => {
@@ -80,22 +82,25 @@ export function MiniChart({ id = 'NIFTY', n = 56 }) {
     const css = getComputedStyle(document.documentElement), up = css.getPropertyValue('--up').trim(), dn = css.getPropertyValue('--dn').trim();
     const draw = (t) => {
       raf = requestAnimationFrame(draw); if (p >= 1 && t - last < 900) return; last = t; p = Math.min(1, p + 0.012);
-      const d = agg(id, 5).slice(-n), lo = Math.min(...d.map((x) => x.l)), hi = Math.max(...d.map((x) => x.h)), pad = (hi - lo) * 0.1 || 1, bw = W / n;
+      const d = agg(id, 5).slice(-n);
+      if (d.length < 3) { g.clearRect(0, 0, W, H); g.fillStyle = css.getPropertyValue('--mut').trim(); g.font = '12px Inter, sans-serif'; g.textAlign = 'center'; g.fillText('Loading real chart data', W / 2, H / 2); return; }
+      const lo = Math.min(...d.map((x) => x.l)), hi = Math.max(...d.map((x) => x.h)), pad = (hi - lo) * 0.1 || 1, bw = W / n;
       g.clearRect(0, 0, W, H); const Y = (v) => H - 8 - ((v - lo + pad) / (hi - lo + 2 * pad)) * (H - 16), k = Math.ceil(d.length * p);
       for (let i = 0; i < k; i++) { const x = d[i], cx = i * bw + bw / 2, col = x.c >= x.o ? up : dn, grow = i === k - 1 ? (d.length * p) % 1 || 1 : 1; g.strokeStyle = g.fillStyle = col; g.beginPath(); g.moveTo(cx, Y(x.h)); g.lineTo(cx, Y(x.l)); g.stroke(); const top = Y(Math.max(x.o, x.c)), bh = Math.max(2, Math.abs(Y(x.o) - Y(x.c))) * grow; g.fillRect(cx - bw * 0.3, top, bw * 0.6, bh); }
     };
     fit(); raf = requestAnimationFrame(draw); addEventListener('resize', fit);
     return () => { cancelAnimationFrame(raf); removeEventListener('resize', fit); };
   }, [id, n]);
-  return <canvas ref={ref} className="minicv" aria-label={'Simulated ' + id + ' chart'} />;
+  return <canvas ref={ref} className="minicv" aria-label={id + ' 5-minute chart'} />;
 }
 
 export function Marquee() {
   const [, tick] = useState(0);
-  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1500); return () => clearInterval(t); }, []);
-  const items = UNIVERSE.filter((u) => u.seg !== 'IDX' || true).slice(0, 26);
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 3000); return () => clearInterval(t); }, []);
+  const items = UNIVERSE.filter((u) => u.seg !== 'CUR' && M[u.id].ok).slice(0, 26);
+  if (!items.length) return <div className="marquee" aria-live="polite"><div className="mqnote">Connecting to NSE and BSE market data</div></div>;
   const row = items.map((u) => <span key={u.id} className="mq"><b>{u.id}</b><span className="mono">{fmt(M[u.id].ltp)}</span><span className={'mono ' + cl(chgp(u.id))}>{pc(chgp(u.id))}</span></span>);
-  return <div className="marquee" aria-label="Simulated prices"><div className="mqtrack">{row}{row}</div></div>;
+  return <div className="marquee" aria-label="Market prices"><div className="mqtrack">{row}{row}</div></div>;
 }
 
 export function FAQ({ items }) {
@@ -112,7 +117,7 @@ export function SiteLayout({ children }) {
     const f = () => { setSc(scrollY > 12); const h = document.documentElement.scrollHeight - innerHeight; if (bar.current) bar.current.style.transform = `scaleX(${h > 0 ? scrollY / h : 0})`; };
     f(); addEventListener('scroll', f, { passive: true }); return () => removeEventListener('scroll', f);
   }, []);
-  const cta = user ? <button className="btn pri" onClick={() => go(lastPage())}>Open dashboard <FiArrowRight /></button> : <><Link to="/login" className="btn ghost">Log in</Link><Link to="/signup" className="btn pri shimmer">Open free account</Link></>;
+  const cta = user ? <button className="btn pri" onClick={() => go(lastPage())}>Open dashboard <FiArrowRight /></button> : <><Link to="/login" className="btn ghost">Log in</Link><Link to="/signup" className="btn pri">Open free account</Link></>;
   return (
     <div className="site">
       <div className="sprog" ref={bar} aria-hidden="true" />
@@ -130,11 +135,11 @@ export function SiteLayout({ children }) {
         <div className="sw">
           <div className="fgrid">
             <div><Link to="/welcome" className="brand"><Logo /><span className="bname">FINORA</span></Link><p className="mut">Trade Beyond Limits. A paper-trading and investing platform for Indian markets, built to learn without risking real money.</p></div>
-            <div><h4>Products</h4><Link to="/products">Stocks and ETFs</Link><Link to="/products">Futures and options</Link><Link to="/products">Mutual funds</Link><Link to="/products">IPO</Link></div>
+            <div><h4>Products</h4><Link to="/products">Stocks and ETFs</Link><Link to="/products">Mutual funds and SIP</Link><Link to="/products">Charts and scanner</Link></div>
             <div><h4>Company</h4><Link to="/about">About</Link><Link to="/pricing">Pricing</Link><Link to="/platforms">Platforms</Link><Link to="/support">Support</Link></div>
             <div><h4>Legal</h4><Link to="/legal/terms">Terms of use</Link><Link to="/legal/privacy">Privacy policy</Link><Link to="/legal/risk">Risk disclosure</Link></div>
           </div>
-          <p className="disc">FINORA Phase 1 is a simulator. Prices are generated, not taken from NSE, BSE or MCX, and all money is virtual. FINORA is not a SEBI registered broker or investment adviser and nothing here is investment advice. Investments in securities markets are subject to market risk.</p>
+          <p className="disc">FINORA Phase 1 is a practice platform. Prices are real NSE and BSE quotes from a public feed, usually delayed, and mutual fund NAVs come from AMFI. All money is virtual and no order reaches a broker or exchange. FINORA is not a SEBI registered broker or investment adviser and nothing here is investment advice. Investments in securities markets are subject to market risk.</p>
           <div className="row between wrapr mut sm"><span>© {new Date().getFullYear()} FINORA</span><span>Made for Indian investors</span></div>
         </div>
       </footer>

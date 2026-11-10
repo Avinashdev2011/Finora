@@ -18,8 +18,8 @@ export default function Ticket({ iid: id0, side: side0 = 'BUY', onDone, onClose 
     return (
       <div className="tk">
         <b>{i.name}</b>
-        <div className="mut">{i.id} is a spot price and cannot be traded directly. Trade its futures or options.</div>
-        <button className="btn pri" onClick={() => { onClose && onClose(); go(i.u.seg === 'COM' ? '/commodities' : i.u.seg === 'CUR' ? '/currency' : '/derivatives'); }}>Open derivatives</button>
+        <div className="mut">{i.id} is shown for reference. Indices and currency rates cannot be traded here.</div>
+        <button className="btn pri" onClick={() => { onClose && onClose(); go('/markets'); }}>Back to markets</button>
       </div>
     );
   }
@@ -68,7 +68,7 @@ export default function Ticket({ iid: id0, side: side0 = 'BUY', onDone, onClose 
         <div><b>{i.label}</b><div className="mut sm">{i.ex} · {i.name}</div></div>
         <div className="mono right"><b>{fmt(i.ltp(), dec)}</b><div className="mut sm">{fmt(bid(i), dec)} / {fmt(ask(i), dec)}</div></div>
       </div>
-      {!isOpenFor(i) && <div className="banner">{closedMsg(i)} Prices are frozen at the last close.</div>}
+      {!isOpenFor(i) && <div className="banner">{closedMsg(i)}</div>}
       <Seg label="Side" value={side} onChange={setSide} options={[['BUY', 'Buy', 'b'], ['SELL', 'Sell', 's']]} />
       {eq ? <Pills label="Product" value={product} onChange={setProduct} options={[['INTRADAY', 'Intraday'], ['DELIVERY', 'Delivery']]} /> : <div className="mut sm">Product: NRML · lot size {i.lot}{i.u.unit ? ' · ' + i.u.unit : ''}</div>}
       <Pills label="Order type" value={type} onChange={setType} options={[['MARKET', 'Market'], ['LIMIT', 'Limit'], ['SL', 'Stop-loss'], ['SL-L', 'SL-Limit']]} />

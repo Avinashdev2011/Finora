@@ -1,26 +1,31 @@
-# FINORA: Trade Beyond Limits
+# FINORA · Trade Beyond Limits
 
-React app: public website + login + paper-trading terminal for Indian markets (NSE, BSE, MCX, currency).
-Phase 1 uses virtual money (₹10,00,000) and a built-in price simulator. No order reaches a broker or exchange.
+Paper-trading and investing web app for Indian markets (React + esbuild, installable PWA).
+Phase 1 uses **virtual money (₹10,00,000)** with **real market data**. No order ever reaches a broker.
 
-## Pages
-Website (public): `/welcome`, `/products`, `/pricing`, `/platforms`, `/about`, `/support`, `/legal/terms|privacy|risk`, `/login`, `/signup`
-App (login required, redirects back to your last page): Home, Markets, Watchlists, Charts, F&O, Commodities, Currency, Mutual funds, IPO, Orders (book, trades, GTT, baskets), Portfolio, Funds, Reports, Scanner, Alerts, Learn, Tools, Settings, Stock detail.
+## Data sources (no generated prices)
+- Stocks, ETFs, indices (NIFTY, BANKNIFTY, SENSEX) and INR currency rates: Yahoo Finance public chart endpoint. Unofficial and usually delayed a few minutes.
+- Mutual funds: AMFI NAVs through mfapi.in.
+- Each price is labelled **Live** (inside the session and fresh) or **Close** (last close) with its timestamp. When closed, orders are blocked.
+- If the feed cannot be reached the app shows "not connected". It never substitutes made-up numbers.
+- Not available (no free reliable source, so removed): options, futures, MCX commodities, IPOs, fundamentals (P/E, market cap). These need a licensed feed or a broker API.
 
-## Build and run
-    npm install          # react, react-dom, react-icons, esbuild
-    npm run build        # outputs dist/ (static site + PWA) and dist/single.html
-    npm run dev          # watch + local server on http://localhost:5173
+## Run
+    npm install react react-dom react-icons esbuild
+    node build.mjs          # outputs dist/ (static site + PWA) and dist/single.html
+    cd dist && python3 -m http.server 8080
 
-## Host free (static hosting, no server needed)
-Upload the `dist/` folder to Netlify Drop, Cloudflare Pages, GitHub Pages or Vercel. Routing uses the URL hash, so no rewrite rules are required.
+## Data proxy (recommended for hosting)
+Browsers may block the Yahoo endpoint (CORS). Deploy `worker/finora-feed.js` as a free Cloudflare Worker, then either
+paste its URL in **Settings → Data source** or set it in `public/config.js`:
 
-## Market hours (IST, Monday to Friday, no holiday calendar yet)
-Equity, ETF, index 9:15 to 15:30. MCX 9:00 to 23:30. Currency 9:00 to 17:00.
-When a segment is closed, prices freeze and orders, alerts and GTTs do not run. Settings has a clearly labelled Demo mode to simulate while closed.
+    window.FINORA_FEED = { proxy: 'https://your-worker.workers.dev' };
 
-## Auth (demo)
-Accounts are stored in the browser (localStorage) with a salted SHA-256 hash. There is no password reset. Replace `src/lib/auth.js` with real backend auth in Phase 2 (see `backend/`).
+The worker only adds CORS headers and a short cache. It does not change the data.
 
-## Going live later
-Real live charts need a licensed market data feed. Replace `tick()` and candle generation in `src/lib/market.js` with a feed adapter. Real-money trading needs a regulated broker partner. Insurance, loans, pledge, MTF, KYC and payments are not built.
+## Free hosting
+Upload `dist/` to Cloudflare Pages, Netlify, Vercel or GitHub Pages (hash routing, no server rules needed).
+
+## Notes
+- Accounts and trades live in the browser only (localStorage). Demo-grade password hashing; do not reuse real passwords.
+- Brand assets: `public/favicon.svg`, `favicon.ico`, `icons/`.

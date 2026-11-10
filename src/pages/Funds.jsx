@@ -15,7 +15,6 @@ export default function Funds() {
         <Card><Stat label="Available to trade" value={inr(available())} /></Card>
         <Card><Stat label="Cash balance" value={inr(S.cash)} /></Card>
         <Card><Stat label="Margin used" value={inr(blocked())} /></Card>
-        <Card><Stat label="IPO funds blocked" value={inr(S.ipoBlocked)} /></Card>
       </div>
       <div className="grid g2">
         <Card title="Add or withdraw">

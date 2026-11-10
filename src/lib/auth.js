@@ -19,7 +19,7 @@ async function hashPw(pw, salt) {
 }
 const okEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
 
-export async function signup({ name, email, phone, password }) {
+export function validateSignup({ name, email, phone, password }) {
   name = name.trim(); email = email.trim().toLowerCase();
   if (name.length < 2) return { ok: false, msg: 'Enter your full name.' };
   if (!okEmail(email)) return { ok: false, msg: 'Enter a valid email address.' };
@@ -27,19 +27,24 @@ export async function signup({ name, email, phone, password }) {
   if (password.length < 8) return { ok: false, msg: 'Password must be at least 8 characters.' };
   const acc = rd(AK, {});
   if (acc[email]) return { ok: false, msg: 'An account with this email already exists. Please log in.' };
+  return { ok: true };
+}
+export async function signup({ name, email, phone, password, emailVerified = false, phoneVerified = false }) {
+  const v = validateSignup({ name, email, phone, password }); if (!v.ok) return v;
+  name = name.trim(); email = email.trim().toLowerCase();
+  const acc = rd(AK, {});
   const salt = Math.random().toString(36).slice(2);
-  acc[email] = { name, phone: phone || '', salt, hash: await hashPw(password, salt), ts: Date.now() }; wr(AK, acc);
-  set({ name, email, ts: Date.now(), guest: false }); mutate((s) => { s.name = name.split(' ')[0]; });
+  acc[email] = { name, phone: phone || '', emailVerified, phoneVerified: !!phone && phoneVerified, salt, hash: await hashPw(password, salt), ts: Date.now() }; wr(AK, acc);
+  set({ name, email, ts: Date.now(), emailVerified, phoneVerified: !!phone && phoneVerified }); mutate((s) => { s.name = name.split(' ')[0]; });
   return { ok: true };
 }
 export async function login(email, password) {
   email = email.trim().toLowerCase();
   const a = rd(AK, {})[email];
   if (!a || (await hashPw(password, a.salt)) !== a.hash) return { ok: false, msg: 'Email or password is incorrect.' };
-  set({ name: a.name, email, ts: Date.now(), guest: false }); mutate((s) => { s.name = a.name.split(' ')[0]; });
+  set({ name: a.name, email, ts: Date.now(), emailVerified: !!a.emailVerified, phoneVerified: !!a.phoneVerified }); mutate((s) => { s.name = a.name.split(' ')[0]; });
   return { ok: true };
 }
-export function guestLogin() { set({ name: 'Guest Trader', email: '', ts: Date.now(), guest: true }); mutate((s) => { s.name = 'Trader'; }); }
 export function logout() { set(null); }
 export const saveLast = (p) => { try { sessionStorage.setItem(LK, p); localStorage.setItem(LK, p); } catch (e) { /* ignore */ } };
 export const lastPage = () => { try { return localStorage.getItem(LK) || '/'; } catch (e) { return '/'; } };

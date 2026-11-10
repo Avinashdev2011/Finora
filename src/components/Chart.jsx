@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FiPlus, FiMinus } from 'react-icons/fi';
-import { M, META, agg, TF, ema, sma, rsi, macd, boll, chg, chgp, marketOpen } from '../lib/market.js';
+import { M, META, agg, TF, ema, sma, rsi, macd, boll, chg, chgp, marketOpen, focusSymbol, seriesState } from '../lib/market.js';
 import { subscribe, inst, bid, ask } from '../lib/engine.js';
 import { fmt, pc, sg, clamp } from '../lib/util.js';
 import { openTicket } from '../lib/ui.js';
@@ -27,6 +27,7 @@ export default function Chart({ sym, tf = '5m', type = 'candle', ind = {}, tool 
     const css = getComputedStyle(document.documentElement), C = (n) => css.getPropertyValue(n).trim();
     const up = C('--up'), dn = C('--dn'), mut = C('--mut'), line = C('--line'), fg = C('--fg'), acc = C('--acc-t'), info = C('--info'), warn = C('--warn'), bg = C('--bg'), s2 = C('--s2');
     const data = agg(sym, TF[tf]), len = data.length, closes = data.map((d) => d.c);
+    if (!len) { const stt = seriesState(sym, TF[tf]); g.fillStyle = mut; g.font = '13px Inter,system-ui,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(stt === 'error' ? 'Chart data could not be loaded. Check your connection.' : 'Loading real chart data', W / 2, H / 2); return; }
     st.n = clamp(st.n, 20, 300);
     const n = Math.min(st.n, len); st.off = clamp(st.off, 0, Math.max(0, len - n));
     const end = len - st.off, start = Math.max(0, end - n), vis = data.slice(start, end);
@@ -105,6 +106,7 @@ export default function Chart({ sym, tf = '5m', type = 'candle', ind = {}, tool 
     return () => { off(); ro.disconnect(); c.removeEventListener('wheel', wheel); cancelAnimationFrame(s.current.raf); };
   }, []);
   useEffect(() => { s.current.pend = null; s.current.off = 0; schedule(); }, [sym, tf]);
+  useEffect(() => { focusSymbol(sym); return () => focusSymbol(null); }, [sym]);
   useEffect(schedule, [type, ind, tool]);
 
   const pos = (e) => { const r = cv.current.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
@@ -139,7 +141,7 @@ export default function Chart({ sym, tf = '5m', type = 'candle', ind = {}, tool 
           {!compact && <div className="ln">{lg.ema && <span style={{ color: 'var(--info)' }}>EMA 20 {lg.ema} </span>}{lg.sma && <span style={{ color: 'var(--warn)' }}>SMA 50 {lg.sma} </span>}{lg.rsi && <span style={{ color: 'var(--warn)' }}>RSI {lg.rsi} </span>}{ind.vol && 'Vol ' + lg.v}</div>}
         </div>
       )}
-      {m && !marketOpen(m.seg) && <div className="closedtag">MARKET CLOSED · last price</div>}
+      {m && !marketOpen(m.seg) && <div className="closedtag">MARKET CLOSED · showing last close</div>}
       <div className="zoom"><button className="iconbtn sm" aria-label="Zoom in" onClick={() => { s.current.n -= 12; schedule(); }}><FiPlus /></button><button className="iconbtn sm" aria-label="Zoom out" onClick={() => { s.current.n += 12; schedule(); }}><FiMinus /></button></div>
       {trade && quote && !compact && (
         <div className="quick"><button className="qs" onClick={() => openTicket(sym, 'SELL')}><small>SELL</small>{quote[0]}</button><button className="qb" onClick={() => openTicket(sym, 'BUY')}><small>BUY</small>{quote[1]}</button></div>

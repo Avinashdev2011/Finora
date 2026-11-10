@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { useLive, getS, mutate, commit, setSimClosed, resetAccount, exportData, importData, notify, toastErr } from '../lib/engine.js';
-import { marketOpen } from '../lib/market.js';
+import { useLive, getS, mutate, resetAccount, exportData, importData, notify, toastErr } from '../lib/engine.js';
+import { marketOpen, feed, getProxy, setProxy, refreshAll } from '../lib/market.js';
 import { inr, downloadFile } from '../lib/util.js';
 import { applyTheme } from '../components/Shell.jsx';
 import { Card, Pills, Field } from '../components/ui.jsx';
@@ -17,10 +17,13 @@ export default function Settings() {
           <Field label="Display name"><input value={S.name} maxLength={30} onChange={(e) => mutate((s) => { s.name = e.target.value; })} /></Field>
           <Pills label="Theme" value={S.theme} onChange={(v) => { mutate((s) => { s.theme = v; }); applyTheme(v); }} options={[['system', 'System'], ['dark', 'Dark'], ['light', 'Light']]} />
         </Card>
-        <Card title="Market hours">
-          <div className="mut sm" style={{ marginBottom: 10 }}>FINORA follows Indian market hours. When a market is closed, prices stay frozen and orders are blocked. Equity is {marketOpen('EQ') && !S.simClosed ? 'open now' : S.simClosed ? 'forced open (demo mode)' : 'closed now'}.</div>
-          <Pills label="Mode" value={S.simClosed ? 'demo' : 'real'} onChange={(v) => setSimClosed(v === 'demo')} options={[['real', 'Real market hours'], ['demo', 'Demo mode: simulate open']]} />
-          <div className="mut sm" style={{ marginTop: 10 }}>Demo mode keeps simulated prices moving outside market hours so you can practise. It is clearly labelled in the top bar.</div>
+        <Card title="Data source">
+          <div className="mut sm" style={{ marginBottom: 10 }}>Prices come from Yahoo Finance's public chart feed (NSE and BSE, usually delayed by a few minutes). Status: <b>{feed.status === 'ok' ? 'connected' : feed.status === 'connecting' ? 'connecting' : 'not connected'}</b>{feed.lastOk ? ' · last update ' + new Date(feed.lastOk).toLocaleTimeString() : ''}. Equity is {feed.status === 'ok' && marketOpen('EQ') ? 'open now' : 'closed or not live'}. When closed, the last close is shown and orders are blocked.</div>
+          {feed.err && feed.status !== 'ok' && <div className="err" style={{ marginBottom: 10 }}>{String(feed.err)}</div>}
+          <Field label="Data proxy URL (optional)"><input placeholder="https://your-worker.workers.dev" defaultValue={getProxy()} onBlur={(e) => setProxy(e.target.value.trim())} /></Field>
+          <Field label="Verification server URL (optional)"><input placeholder="https://your-api.example.com" defaultValue={(() => { try { return localStorage.getItem('finora.api') || ''; } catch (e) { return ''; } })()} onBlur={(e) => { try { const v = e.target.value.trim(); v ? localStorage.setItem('finora.api', v) : localStorage.removeItem('finora.api'); } catch (err) { /* ignore */ } }} /></Field>
+          <div className="row" style={{ marginTop: 10 }}><button className="btn" onClick={() => refreshAll()}>Refresh now</button></div>
+          <div className="mut sm" style={{ marginTop: 10 }}>If your browser blocks the feed, deploy the small proxy from the worker folder and paste its address here.</div>
         </Card>
         <Card title="Backup">
           <div className="row wrapr">
@@ -36,7 +39,7 @@ export default function Settings() {
         </Card>
       </div>
       <Card title="About data and trading">
-        <div className="mut sm">FINORA Phase 1 uses simulated market data and virtual money. Prices are generated, not taken from NSE or BSE, and no order reaches a broker or exchange. Real live charts need a licensed market data feed. Mutual fund NAVs and IPOs are demo data. Nothing here is investment advice.</div>
+        <div className="mut sm">FINORA Phase 1 uses real, delayed NSE/BSE prices from a public feed and real AMFI mutual fund NAVs, with virtual money. No order reaches a broker or exchange. Fundamentals such as P/E and market cap are not shown because no free source is available. Nothing here is investment advice.</div>
       </Card>
     </div>
   );

@@ -1,34 +1,32 @@
-// FINORA engine: state, persistence, order matching, margin, charges, GTT, baskets, funds, mutual funds, IPOs.
-// Everything is virtual money. No order reaches a broker or exchange.
+// FINORA engine: state, persistence, order matching, margin, charges, GTT, baskets, funds, mutual funds.
+// Orders are paper trades filled at real market prices. Everything is virtual money. No order reaches a broker or exchange.
 import { useSyncExternalStore } from 'react';
-import { M, META, UNIVERSE, tick as marketTick, bs, yrs, marketOpen, setForceOpen, SESSIONS } from './market.js';
-import { FUND, navNow, navOn } from './mfdata.js';
-import { dlab, ymd, mulberry, hash, dayNum } from './util.js';
+import { M, META, UNIVERSE, marketOpen, isLive, feed, SESSIONS, startFeed, setNotifier } from './market.js';
+import { navNow, fundInfo, loadFund, setMfNotifier } from './mfdata.js';
+import { ymd, dayNum } from './util.js';
 
-const KEY = 'finora.react.v2';
+const KEY = 'finora.react.v3';
 export const START = 1000000;
 const DEF_WL = ['NIFTY', 'BANKNIFTY', 'SENSEX', 'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'ITC'];
 
 const fresh = () => ({
-  v: 2, name: 'Trader', start: START, cash: START, ipoBlocked: 0, holdings: {}, positions: {}, orders: [], trades: [], gtts: [], baskets: [],
-  wls: { 'Watchlist 1': DEF_WL.slice(), 'Commodities and FX': ['GOLD', 'SILVER', 'CRUDEOIL', 'USDINR'] }, wl: 'Watchlist 1',
+  v: 3, name: 'Trader', start: START, cash: START, holdings: {}, positions: {}, orders: [], trades: [], gtts: [], baskets: [],
+  wls: { 'Watchlist 1': DEF_WL.slice(), 'Banks and ETFs': ['HDFCBANK', 'ICICIBANK', 'SBIN', 'AXISBANK', 'NIFTYBEES', 'GOLDBEES'] }, wl: 'Watchlist 1',
   alerts: [], journal: [], eq: [], nid: 1, realized: 0, charges: 0, dayStart: null, theme: 'dark',
   ledger: [{ ts: Date.now(), type: 'OPENING', amt: START, note: 'Opening virtual balance', bal: START }],
-  mf: { h: {}, sips: [], tx: [] }, ipo: { bids: [] }, notifs: [], simClosed: false,
+  mf: { h: {}, sips: [], tx: [] }, notifs: [],
 });
 function load() {
   try {
     const r = JSON.parse(localStorage.getItem(KEY));
-    if (r && r.v === 2) { const f = fresh(); return { ...f, ...r, mf: { ...f.mf, ...r.mf }, ipo: { ...f.ipo, ...r.ipo } }; }
+    if (r && r.v === 3) { const f = fresh(); return { ...f, ...r, mf: { ...f.mf, ...r.mf } }; }
   } catch (e) { /* ignore */ }
   return fresh();
 }
 let S = load();
-setForceOpen(S.simClosed);
 export const getS = () => S;
-export const isOpenFor = (i) => marketOpen(i.u.seg);
-export const setSimClosed = (v) => { S.simClosed = !!v; setForceOpen(v); commit(); };
-export const closedMsg = (i) => `Market is closed (${(SESSIONS[i.u.seg] || SESSIONS.EQ)[2]}, Monday to Friday). Orders can be placed when it opens.`;
+export const isOpenFor = (i) => feed.status === 'ok' && isLive(i.u.id);
+export const closedMsg = (i) => (feed.status !== 'ok' ? 'Live market data is not connected, so trading is paused.' : M[i.u.id].ok ? `Market is closed (${SESSIONS[i.u.seg] || SESSIONS.EQ}). Orders can be placed when it opens.` : 'No price data for this instrument yet.');
 
 /* ---------- store ---------- */
 let ver = 0, pending = false, dirty = false, toasts = [];
@@ -50,25 +48,16 @@ export function notify(msg, kind = '', keep = true) {
 export const toastErr = (m) => notify(m, 'bad', false);
 
 /* ---------- instruments ---------- */
-const exOf = (u) => (u.seg === 'IDX' ? u.ex || 'NFO' : u.seg === 'COM' ? 'MCX' : u.seg === 'CUR' ? 'CDS' : 'NFO');
 export function inst(id) {
-  const p = id.split('|'), u = META.get(p[0]);
-  if (!u) return null;
-  if (p.length === 1) {
-    if (u.seg === 'EQ' || u.seg === 'ETF') return { id, kind: 'EQ', und: id, u, name: u.name, label: id, lot: 1, ex: 'NSE', ltp: () => M[id].ltp };
-    return { id, kind: 'SPOT', und: id, u, name: u.name, label: id, lot: 1, ex: u.seg === 'IDX' ? 'NSE' : exOf(u), ltp: () => M[id].ltp };
-  }
-  const carry = u.seg === 'CUR' ? 0.02 : u.seg === 'COM' ? 0.03 : 0.065;
-  if (p[1] === 'FUT') return { id, kind: 'FUT', und: p[0], u, name: u.name + ' Futures', label: `${p[0]} FUT ${dlab(p[2])}`, lot: u.lot, exp: p[2], ex: exOf(u), ltp: () => M[p[0]].ltp * (1 + carry * yrs(p[2])) };
-  const k = +p[1], t = p[2], e = p[3];
-  return { id, kind: 'OPT', und: p[0], u, name: `${p[0]} ${k} ${t}`, label: `${p[0]} ${dlab(e)} ${k} ${t}`, lot: u.lot, exp: e, k, type: t, ex: exOf(u), ltp: () => bs(M[p[0]].ltp, k, yrs(e), t, u.iv || 0.13) };
+  const u = META.get(id); if (!u) return null;
+  const tr = u.trade && (u.seg === 'EQ' || u.seg === 'ETF');
+  return { id, kind: tr ? 'EQ' : 'SPOT', und: id, u, name: u.name, label: id, lot: 1, ex: 'NSE', ltp: () => (M[id].ok ? M[id].ltp : 0) };
 }
-const spr = (i) => Math.max(i.kind === 'OPT' ? 0.05 : 0.01, i.ltp() * (i.u.seg === 'CUR' ? 0.00003 : 0.00004));
+const spr = (i) => Math.max(0.01, i.ltp() * 0.00004);
 export const bid = (i) => Math.max(0.01, i.ltp() - spr(i) / 2);
 export const ask = (i) => i.ltp() + spr(i) / 2;
 export const px = (i, side) => (side === 'BUY' ? ask(i) : bid(i));
 export const prodOf = (i) => (i.kind === 'EQ' ? 'INTRADAY' : 'NRML');
-export const isExpired = (i) => i.exp && new Date(i.exp + 'T15:30:00') < new Date();
 
 /* ---------- charges and margin (estimates) ---------- */
 export function charges(i, side, units, price, product) {
@@ -86,16 +75,16 @@ export function posMargin(i, qty, avg) {
   const n = Math.abs(qty), seg = i.u.seg;
   if (i.kind === 'EQ') return 0.2 * n * avg;
   if (i.kind === 'FUT') return (seg === 'COM' ? 0.08 : seg === 'CUR' ? 0.03 : 0.12) * n * avg;
-  return qty > 0 ? n * avg : (seg === 'EQ' ? 0.2 : 0.15) * M[i.und].ltp * n;
+  return 0.2 * n * avg;
 }
 export const blocked = () => Object.values(S.positions).reduce((a, p) => { const i = inst(p.id); return i ? a + posMargin(i, p.qty, p.avg) : a; }, 0);
 export const available = () => S.cash - blocked();
-export const holdMV = () => Object.entries(S.holdings).reduce((a, [s, h]) => a + h.qty * M[s].ltp, 0);
+export const holdMV = () => Object.entries(S.holdings).reduce((a, [s, h]) => a + h.qty * (M[s] && M[s].ok ? M[s].ltp : h.avg), 0);
 export const holdCost = () => Object.values(S.holdings).reduce((a, h) => a + h.qty * h.avg, 0);
-export const unreal = () => Object.values(S.positions).reduce((a, p) => { const i = inst(p.id); return i ? a + (i.ltp() - p.avg) * p.qty : a; }, 0);
-export const mfValue = () => Object.entries(S.mf.h).reduce((a, [id, h]) => a + h.units * navNow(FUND[id]), 0);
+export const unreal = () => Object.values(S.positions).reduce((a, p) => { const i = inst(p.id); return i ? a + ((i.ltp() || p.avg) - p.avg) * p.qty : a; }, 0);
+export const mfValue = () => Object.entries(S.mf.h).reduce((a, [id, h]) => a + h.units * (navNow(id) || h.nav || h.invested / h.units), 0);
 export const mfInvested = () => Object.values(S.mf.h).reduce((a, h) => a + h.invested, 0);
-export const equity = () => S.cash + holdMV() + unreal() + mfValue() + S.ipoBlocked;
+export const equity = () => S.cash + holdMV() + unreal() + mfValue();
 export const dayPnl = () => equity() - (S.dayStart ? S.dayStart.v : equity());
 
 export function marginDelta(i, side, units, price, product) {
@@ -128,8 +117,7 @@ function applyFill(i, side, units, price, product, ord) {
   if (S.trades.length > 800) S.trades.length = 800;
 }
 export function validate(i, side, units, price, product) {
-  if (!i || i.kind === 'SPOT') return 'This instrument cannot be traded directly. Trade its futures or options.';
-  if (isExpired(i)) return 'This contract has expired.';
+  if (!i || i.kind === 'SPOT') return 'Indices and currency rates are for viewing only. They cannot be traded here.';
   if (!isOpenFor(i)) return closedMsg(i);
   if (!(units > 0) || !Number.isInteger(units)) return 'Enter a whole quantity above zero.';
   if (!(price > 0)) return 'Enter a valid price.';
@@ -236,94 +224,49 @@ export function withdrawFunds(amt) {
   S.cash -= amt; S.start -= amt; if (S.dayStart) S.dayStart.v -= amt; ledger('WITHDRAWAL', -amt, 'Withdrew virtual funds'); commit(); notify('Withdrew ₹' + amt.toLocaleString('en-IN'), 'ok'); return { ok: true };
 }
 
-/* ---------- mutual funds ---------- */
-export function mfBuy(fid, amt, note = 'Lumpsum') {
-  const f = FUND[fid]; if (!f) return { ok: false, msg: 'Unknown fund.' };
+/* ---------- mutual funds (real AMFI NAVs; orders fill at the latest published NAV) ---------- */
+export function mfBuy(code, amt, note = 'Lumpsum') {
+  const f = fundInfo(code); if (!f) return { ok: false, msg: 'Fund data is not loaded yet.' };
   if (!(amt >= 100)) return { ok: false, msg: 'Minimum investment is ₹100.' };
   if (amt > available()) return { ok: false, msg: 'Not enough available funds.' };
-  const nav = navNow(f), units = amt / nav, h = S.mf.h[fid] || { units: 0, invested: 0 };
-  h.units += units; h.invested += amt; S.mf.h[fid] = h; S.cash -= amt;
-  S.mf.tx.unshift({ ts: Date.now(), fid, type: 'BUY', amt, units, nav, note }); ledger('MF BUY', -amt, f.name);
-  commit(); return { ok: true, msg: `Invested ₹${amt.toLocaleString('en-IN')} in ${f.name}: ${units.toFixed(3)} units at NAV ${nav.toFixed(2)}` };
+  const nav = navNow(code), units = amt / nav, h = S.mf.h[code] || { units: 0, invested: 0, name: f.name };
+  h.units += units; h.invested += amt; h.nav = nav; h.name = f.name; S.mf.h[code] = h; S.cash -= amt;
+  S.mf.tx.unshift({ ts: Date.now(), fid: code, name: f.name, type: 'BUY', amt, units, nav, note }); ledger('MF BUY', -amt, f.name);
+  commit(); return { ok: true, msg: `Invested ₹${amt.toLocaleString('en-IN')} in ${f.name}: ${units.toFixed(3)} units at NAV ${nav.toFixed(4)}` };
 }
-export function mfRedeem(fid, units) {
-  const f = FUND[fid], h = S.mf.h[fid]; if (!f || !h) return { ok: false, msg: 'No holding.' };
+export function mfRedeem(code, units) {
+  const h = S.mf.h[code], f = fundInfo(code); if (!h) return { ok: false, msg: 'No holding.' };
+  if (!f) return { ok: false, msg: 'Fund data is not loaded yet.' };
   if (!(units > 0) || units > h.units + 1e-9) return { ok: false, msg: 'Enter units up to your holding.' };
-  const nav = navNow(f), amt = units * nav, frac = units / h.units;
-  h.invested -= h.invested * frac; h.units -= units; if (h.units < 1e-6) delete S.mf.h[fid];
-  S.cash += amt; S.mf.tx.unshift({ ts: Date.now(), fid, type: 'SELL', amt, units, nav, note: 'Redemption' }); ledger('MF REDEEM', amt, f.name);
+  const nav = navNow(code), amt = units * nav, frac = units / h.units;
+  h.invested -= h.invested * frac; h.units -= units; if (h.units < 1e-6) delete S.mf.h[code];
+  S.cash += amt; S.mf.tx.unshift({ ts: Date.now(), fid: code, name: h.name, type: 'SELL', amt, units, nav, note: 'Redemption' }); ledger('MF REDEEM', amt, h.name);
   commit(); return { ok: true, msg: `Redeemed ${units.toFixed(3)} units for ₹${amt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` };
 }
-export function createSIP(fid, amt, day) {
-  if (!FUND[fid]) return { ok: false, msg: 'Unknown fund.' };
+export function createSIP(code, amt, day) {
+  const f = fundInfo(code); if (!f) return { ok: false, msg: 'Fund data is not loaded yet.' };
   if (!(amt >= 100)) return { ok: false, msg: 'Minimum SIP is ₹100.' };
-  S.mf.sips.unshift({ id: S.nid++, fid, amt, day: Math.min(28, Math.max(1, day | 0)), start: ymd(new Date()), active: true, done: [] });
+  S.mf.sips.unshift({ id: S.nid++, fid: code, name: f.name, amt, day: Math.min(28, Math.max(1, day | 0)), start: ymd(new Date()), active: true, done: [] });
   commit(); processSIPs(); return { ok: true, msg: 'SIP created.' };
 }
 export const toggleSIP = (id) => { const s = S.mf.sips.find((x) => x.id === id); if (s) { s.active = !s.active; commit(); } };
 export const deleteSIP = (id) => { S.mf.sips = S.mf.sips.filter((x) => x.id !== id); commit(); };
-export function processSIPs() {
+export async function processSIPs() {
   const today = ymd(new Date()), now = new Date();
-  S.mf.sips.forEach((s) => {
-    if (!s.active) return;
+  for (const s of S.mf.sips) {
+    if (!s.active) continue;
     const st = new Date(s.start + 'T12:00:00');
     for (let y = st.getFullYear(), m = st.getMonth(); y < now.getFullYear() || (y === now.getFullYear() && m <= now.getMonth()); m++) {
       if (m > 11) { m = 0; y++; }
       const due = `${y}-${String(m + 1).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`, key = due.slice(0, 7);
       if (due < s.start || due > today || s.done.includes(key)) { if (y === now.getFullYear() && m >= now.getMonth()) break; continue; }
+      try { await loadFund(s.fid); } catch (e) { break; }
       s.done.push(key);
       const r = mfBuy(s.fid, s.amt, 'SIP ' + key);
-      notify(r.ok ? `SIP installment: ${r.msg}` : `SIP skipped for ${FUND[s.fid].name}: ${r.msg}`, r.ok ? 'ok' : 'bad');
+      notify(r.ok ? `SIP installment: ${r.msg}` : `SIP skipped for ${s.name}: ${r.msg}`, r.ok ? 'ok' : 'bad');
       if (y === now.getFullYear() && m >= now.getMonth()) break;
     }
-  });
-}
-
-/* ---------- IPO (demo, fictional companies) ---------- */
-const H = 36e5, D = 864e5, t0 = new Date(); t0.setHours(10, 0, 0, 0);
-const ipo = (id, name, sector, lo, hi, lot, size, off, subs, gain) => ({ id, name, sector, lo, hi, lot, size, open: t0.getTime() + off * D, close: t0.getTime() + (off + 3) * D + 7 * H, subs, gain });
-export const IPOS = [
-  ipo('AARAV', 'Aarav Solar Systems', 'Renewable energy', 182, 192, 78, 640, -1, 18.4, 21),
-  ipo('BHAVYA', 'Bhavya Foods Ltd', 'Packaged food', 410, 432, 34, 1120, 0, 4.2, 9),
-  ipo('COBALT', 'Cobalt Logistics', 'Logistics', 96, 102, 144, 380, 2, 1.1, -4),
-  ipo('DELTALINE', 'Deltaline Semiconductors', 'Electronics', 520, 548, 27, 2450, 5, 32.5, 38),
-  ipo('EVERGREEN', 'Evergreen Care Hospitals', 'Healthcare', 301, 318, 47, 1560, -5, 0.8, -6),
-  ipo('FINTRAIL', 'Fintrail Payments', 'Fintech', 244, 258, 58, 900, -8, 51.2, 44),
-];
-export const ipoStatus = (x) => { const n = Date.now(); return n < x.open ? 'UPCOMING' : n < x.close ? 'OPEN' : 'CLOSED'; };
-export const ipoSubs = (x) => { const n = Date.now(); if (n < x.open) return 0; const p = Math.min(1, (n - x.open) / (x.close - x.open)); return x.subs * (0.15 + 0.85 * p * p); };
-export function ipoBid(id, lots) {
-  const x = IPOS.find((i) => i.id === id); if (!x || ipoStatus(x) !== 'OPEN') return { ok: false, msg: 'This IPO is not open for bids.' };
-  if (!(lots >= 1 && lots <= 13 && Number.isInteger(lots))) return { ok: false, msg: 'Retail bids are 1 to 13 lots.' };
-  if (S.ipo.bids.some((b) => b.ipo === id && b.status === 'APPLIED')) return { ok: false, msg: 'You already have an active bid on this IPO.' };
-  const amt = lots * x.lot * x.hi;
-  if (amt > 200000) return { ok: false, msg: 'Retail bids are capped at ₹2,00,000.' };
-  if (amt > available()) return { ok: false, msg: 'Not enough available funds to block for this bid.' };
-  S.cash -= amt; S.ipoBlocked += amt;
-  S.ipo.bids.unshift({ id: S.nid++, ipo: id, lots, price: x.hi, amt, ts: Date.now(), status: 'APPLIED' });
-  ledger('IPO BID', -amt, x.name + ' (funds blocked)'); commit(); return { ok: true, msg: `Bid placed for ${lots} lot(s). ₹${amt.toLocaleString('en-IN')} blocked until allotment.` };
-}
-export function ipoCancel(bidId) {
-  const b = S.ipo.bids.find((x) => x.id === bidId); if (!b || b.status !== 'APPLIED') return;
-  const x = IPOS.find((i) => i.id === b.ipo); if (x && ipoStatus(x) !== 'OPEN') return;
-  b.status = 'CANCELLED'; S.ipoBlocked -= b.amt; S.cash += b.amt; ledger('IPO REFUND', b.amt, 'Bid cancelled'); commit();
-}
-function processIPO() {
-  S.ipo.bids.forEach((b) => {
-    if (b.status !== 'APPLIED') return;
-    const x = IPOS.find((i) => i.id === b.ipo); if (!x || ipoStatus(x) !== 'CLOSED') return;
-    S.ipoBlocked -= b.amt;
-    const win = mulberry(hash('allot' + b.id))() < Math.min(1, 1 / x.subs);
-    if (win) {
-      const listPx = x.hi * (1 + x.gain / 100), shares = x.lot, credit = shares * listPx, refund = b.amt - shares * x.hi;
-      S.cash += refund + credit; b.status = 'ALLOTTED'; b.shares = shares; b.listPx = listPx; b.pnl = shares * (listPx - x.hi);
-      ledger('IPO ALLOTMENT', refund + credit, `${x.name}: ${shares} shares sold at simulated listing price ${listPx.toFixed(2)}`);
-      notify(`IPO allotted: ${x.name}, ${shares} shares. Simulated listing gain ${b.pnl >= 0 ? '+' : ''}₹${b.pnl.toFixed(0)}`, 'ok');
-    } else {
-      S.cash += b.amt; b.status = 'NOT ALLOTTED'; ledger('IPO REFUND', b.amt, x.name + ': not allotted'); notify(`IPO not allotted: ${x.name}. Funds returned.`);
-    }
-    dirty = true;
-  });
+  }
 }
 
 /* ---------- account ---------- */
@@ -334,23 +277,22 @@ export function resetAccount(amount) {
 }
 export const exportData = () => JSON.stringify(S);
 export function importData(txt) {
-  try { const r = JSON.parse(txt); if (!r || r.v !== 2 || typeof r.cash !== 'number') return false; const f = fresh(); S = { ...f, ...r, mf: { ...f.mf, ...r.mf }, ipo: { ...f.ipo, ...r.ipo } }; commit(); return true; } catch (e) { return false; }
+  try { const r = JSON.parse(txt); if (!r || r.v !== 3 || typeof r.cash !== 'number') return false; const f = fresh(); S = { ...f, ...r, mf: { ...f.mf, ...r.mf } }; commit(); return true; } catch (e) { return false; }
 }
 export function setWatch(fn) { fn(S); commit(); }
 export function activeList() { return S.wls[S.wl] || (S.wl = Object.keys(S.wls)[0], S.wls[S.wl]); }
-export const MFNAV = { navNow, navOn };
 
 /* ---------- loop ---------- */
 let started = false, n = 0;
 export function startEngine() {
   if (started) return; started = true;
-  const today = ymd(new Date());
-  if (!S.dayStart || S.dayStart.d !== today) S.dayStart = { d: today, v: equity() };
-  processSIPs(); processIPO();
+  setNotifier(emit); setMfNotifier(emit); startFeed();
+  processSIPs();
   setInterval(() => {
-    n++; marketTick(); processOrders(); processGTT(); checkAlerts();
-    if (n % 10 === 0) { S.eq.push({ t: Date.now(), v: equity() }); if (S.eq.length > 600) S.eq.shift(); dirty = true; }
-    if (n % 30 === 0) processIPO();
+    n++; processOrders(); processGTT(); checkAlerts();
+    const today = ymd(new Date());
+    if (feed.status === 'ok' && (!S.dayStart || S.dayStart.d !== today)) { S.dayStart = { d: today, v: equity() }; dirty = true; }
+    if (n % 10 === 0 && feed.status === 'ok') { S.eq.push({ t: Date.now(), v: equity() }); if (S.eq.length > 600) S.eq.shift(); dirty = true; }
     if (n % 3600 === 0) processSIPs();
     emit();
   }, 1000);
@@ -358,4 +300,4 @@ export function startEngine() {
   addEventListener('pagehide', persist);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persist(); });
 }
-export { UNIVERSE, dayNum, marketOpen };
+export { UNIVERSE, dayNum, marketOpen, feed };

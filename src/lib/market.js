@@ -1,141 +1,135 @@
-// SIMULATED market. Base prices are illustrative and every price here is generated, never real exchange data.
-// To go live, replace tick() and build() with a licensed feed adapter (see backend/main.py and README).
-import { mulberry, hash, gauss, clamp, ymd } from './util.js';
-
-const E = (id, name, sec, base, o = {}) => ({ id, name, sec, seg: 'EQ', base, vol: 0.0006, ...o });
-const F = (lot, step) => ({ fo: 1, lot, step, iv: 0.26 });
-
+// FINORA market data. REAL prices only, nothing is generated.
+// Source: Yahoo Finance public chart data for NSE/BSE symbols, delayed by the source and unofficial. It needs a browser-reachable
+// route: either direct (if the source allows it) or your own proxy (see worker/finora-feed.js and Settings, Data source).
+// When data cannot be loaded the app shows no prices at all and blocks trading, it never falls back to made-up numbers.
+const S = (id, y, name, sec, seg = 'EQ', trade = true) => ({ id, y, name, sec, seg, trade });
+const eq = (id, name, sec) => S(id, id + '.NS', name, sec);
 export const UNIVERSE = [
-  E('RELIANCE', 'Reliance Industries', 'Energy', 1412.6, F(250, 10)),
-  E('TCS', 'Tata Consultancy Services', 'IT', 4105.25, F(175, 20)),
-  E('INFY', 'Infosys', 'IT', 1788.4, F(400, 20)),
-  E('WIPRO', 'Wipro', 'IT', 312.45),
-  E('HDFCBANK', 'HDFC Bank', 'Banking', 1742.15, F(550, 20)),
-  E('ICICIBANK', 'ICICI Bank', 'Banking', 1284.7, F(700, 10)),
-  E('SBIN', 'State Bank of India', 'Banking', 842.3, F(750, 10)),
-  E('AXISBANK', 'Axis Bank', 'Banking', 1160.5, F(625, 10)),
-  E('KOTAKBANK', 'Kotak Mahindra Bank', 'Banking', 2010.2),
-  E('BAJFINANCE', 'Bajaj Finance', 'Financials', 6900),
-  E('ITC', 'ITC', 'FMCG', 468.85, F(1600, 5)),
-  E('HINDUNILVR', 'Hindustan Unilever', 'FMCG', 2480),
-  E('LT', 'Larsen & Toubro', 'Infra', 3640, F(175, 20)),
-  E('ADANIPORTS', 'Adani Ports', 'Infra', 1420),
-  E('ULTRACEMCO', 'UltraTech Cement', 'Infra', 11200),
-  E('BHARTIARTL', 'Bharti Airtel', 'Telecom', 1905.3, F(475, 20)),
-  E('MARUTI', 'Maruti Suzuki', 'Auto', 12600, { vol: 0.0008 }),
-  E('TATAMOTORS', 'Tata Motors', 'Auto', 962.1, { vol: 0.0008, ...F(1425, 10) }),
-  E('M&M', 'Mahindra & Mahindra', 'Auto', 3150, { vol: 0.0008 }),
-  E('SUNPHARMA', 'Sun Pharma', 'Pharma', 1780),
-  E('DRREDDY', 'Dr Reddys Laboratories', 'Pharma', 1290),
-  E('TATASTEEL', 'Tata Steel', 'Metals', 158.4, { vol: 0.0008 }),
-  E('JSWSTEEL', 'JSW Steel', 'Metals', 1035, { vol: 0.0008 }),
-  E('ONGC', 'ONGC', 'Energy', 262),
-  E('NTPC', 'NTPC', 'Energy', 365),
-  E('POWERGRID', 'Power Grid', 'Energy', 305),
-  E('COALINDIA', 'Coal India', 'Energy', 410),
-  E('ASIANPAINT', 'Asian Paints', 'Consumer', 2380),
-  E('TITAN', 'Titan Company', 'Consumer', 3400),
-  { id: 'NIFTYBEES', name: 'Nippon Nifty 50 BeES', sec: 'ETF', seg: 'ETF', base: 262.4, vol: 0.0003 },
-  { id: 'BANKBEES', name: 'Nippon Bank BeES', sec: 'ETF', seg: 'ETF', base: 540.1, vol: 0.0004 },
-  { id: 'GOLDBEES', name: 'Nippon Gold BeES', sec: 'ETF', seg: 'ETF', base: 68.2, vol: 0.0004 },
-  { id: 'ITBEES', name: 'Nippon IT BeES', sec: 'ETF', seg: 'ETF', base: 42.3, vol: 0.0005 },
-  { id: 'LIQUIDBEES', name: 'Nippon Liquid BeES', sec: 'ETF', seg: 'ETF', base: 1000, vol: 0.00002 },
-  { id: 'NIFTY', name: 'NIFTY 50', sec: 'Index', seg: 'IDX', base: 24812.35, vol: 0.00028, fo: 1, lot: 75, step: 50, iv: 0.13 },
-  { id: 'BANKNIFTY', name: 'BANK NIFTY', sec: 'Index', seg: 'IDX', base: 53240.1, vol: 0.00034, fo: 1, lot: 30, step: 100, iv: 0.16 },
-  { id: 'FINNIFTY', name: 'FIN NIFTY', sec: 'Index', seg: 'IDX', base: 23650.4, vol: 0.0003, fo: 1, lot: 65, step: 50, iv: 0.14 },
-  { id: 'SENSEX', name: 'SENSEX', sec: 'Index', seg: 'IDX', base: 81305.62, vol: 0.00028, fo: 1, lot: 20, step: 100, iv: 0.13, ex: 'BFO' },
-  { id: 'GOLD', name: 'Gold', sec: 'Commodity', seg: 'COM', base: 78500, vol: 0.0004, fo: 1, lot: 100, unit: '10 g' },
-  { id: 'SILVER', name: 'Silver', sec: 'Commodity', seg: 'COM', base: 92000, vol: 0.0007, fo: 1, lot: 30, unit: 'kg' },
-  { id: 'CRUDEOIL', name: 'Crude Oil', sec: 'Commodity', seg: 'COM', base: 6200, vol: 0.0009, fo: 1, lot: 100, unit: 'bbl' },
-  { id: 'NATURALGAS', name: 'Natural Gas', sec: 'Commodity', seg: 'COM', base: 250, vol: 0.0013, fo: 1, lot: 1250, unit: 'mmBtu' },
-  { id: 'COPPER', name: 'Copper', sec: 'Commodity', seg: 'COM', base: 850, vol: 0.0006, fo: 1, lot: 2500, unit: 'kg' },
-  { id: 'USDINR', name: 'US Dollar / Rupee', sec: 'Currency', seg: 'CUR', base: 84.2, vol: 0.00006, fo: 1, lot: 1000 },
-  { id: 'EURINR', name: 'Euro / Rupee', sec: 'Currency', seg: 'CUR', base: 91.0, vol: 0.00008, fo: 1, lot: 1000 },
-  { id: 'GBPINR', name: 'Pound / Rupee', sec: 'Currency', seg: 'CUR', base: 108.5, vol: 0.00008, fo: 1, lot: 1000 },
-  { id: 'JPYINR', name: 'Yen / Rupee', sec: 'Currency', seg: 'CUR', base: 0.56, vol: 0.0001, fo: 1, lot: 100000 },
+  S('NIFTY', '^NSEI', 'NIFTY 50', 'Index', 'IDX', false), S('BANKNIFTY', '^NSEBANK', 'NIFTY Bank', 'Index', 'IDX', false), S('SENSEX', '^BSESN', 'S&P BSE SENSEX', 'Index', 'IDX', false),
+  eq('RELIANCE', 'Reliance Industries', 'Energy'), eq('TCS', 'Tata Consultancy Services', 'IT'), eq('INFY', 'Infosys', 'IT'), eq('HCLTECH', 'HCL Technologies', 'IT'), eq('WIPRO', 'Wipro', 'IT'), eq('TECHM', 'Tech Mahindra', 'IT'),
+  eq('HDFCBANK', 'HDFC Bank', 'Banking'), eq('ICICIBANK', 'ICICI Bank', 'Banking'), eq('SBIN', 'State Bank of India', 'Banking'), eq('AXISBANK', 'Axis Bank', 'Banking'), eq('KOTAKBANK', 'Kotak Mahindra Bank', 'Banking'), eq('INDUSINDBK', 'IndusInd Bank', 'Banking'),
+  eq('BAJFINANCE', 'Bajaj Finance', 'Financials'), eq('BAJAJFINSV', 'Bajaj Finserv', 'Financials'),
+  eq('ITC', 'ITC', 'FMCG'), eq('HINDUNILVR', 'Hindustan Unilever', 'FMCG'), eq('NESTLEIND', 'Nestle India', 'FMCG'), eq('BRITANNIA', 'Britannia Industries', 'FMCG'),
+  eq('LT', 'Larsen & Toubro', 'Infra'), eq('ADANIPORTS', 'Adani Ports', 'Infra'), eq('ULTRACEMCO', 'UltraTech Cement', 'Infra'), eq('GRASIM', 'Grasim Industries', 'Infra'), eq('ADANIENT', 'Adani Enterprises', 'Infra'),
+  eq('BHARTIARTL', 'Bharti Airtel', 'Telecom'),
+  eq('MARUTI', 'Maruti Suzuki', 'Auto'), eq('M&M', 'Mahindra & Mahindra', 'Auto'), eq('EICHERMOT', 'Eicher Motors', 'Auto'), eq('HEROMOTOCO', 'Hero MotoCorp', 'Auto'), eq('BAJAJ-AUTO', 'Bajaj Auto', 'Auto'),
+  eq('SUNPHARMA', 'Sun Pharma', 'Pharma'), eq('DRREDDY', 'Dr Reddys Laboratories', 'Pharma'), eq('CIPLA', 'Cipla', 'Pharma'), eq('DIVISLAB', 'Divis Laboratories', 'Pharma'), eq('APOLLOHOSP', 'Apollo Hospitals', 'Healthcare'),
+  eq('TATASTEEL', 'Tata Steel', 'Metals'), eq('JSWSTEEL', 'JSW Steel', 'Metals'), eq('HINDALCO', 'Hindalco Industries', 'Metals'),
+  eq('ONGC', 'ONGC', 'Energy'), eq('NTPC', 'NTPC', 'Energy'), eq('POWERGRID', 'Power Grid', 'Energy'), eq('COALINDIA', 'Coal India', 'Energy'), eq('BPCL', 'Bharat Petroleum', 'Energy'),
+  eq('ASIANPAINT', 'Asian Paints', 'Consumer'), eq('TITAN', 'Titan Company', 'Consumer'),
+  S('NIFTYBEES', 'NIFTYBEES.NS', 'Nippon Nifty 50 BeES', 'ETF', 'ETF'), S('BANKBEES', 'BANKBEES.NS', 'Nippon Bank BeES', 'ETF', 'ETF'), S('GOLDBEES', 'GOLDBEES.NS', 'Nippon Gold BeES', 'ETF', 'ETF'), S('ITBEES', 'ITBEES.NS', 'Nippon IT BeES', 'ETF', 'ETF'),
+  S('USDINR', 'USDINR=X', 'US Dollar / Rupee', 'Currency', 'CUR', false), S('EURINR', 'EURINR=X', 'Euro / Rupee', 'Currency', 'CUR', false), S('GBPINR', 'GBPINR=X', 'Pound / Rupee', 'Currency', 'CUR', false), S('JPYINR', 'JPYINR=X', 'Yen / Rupee', 'Currency', 'CUR', false),
 ];
 export const META = new Map(UNIVERSE.map((u) => [u.id, u]));
-export const ids = (seg) => UNIVERSE.filter((u) => u.seg === seg).map((u) => u.id);
 export const M = {};
-export const NB = 4000, DAY = 375;
+UNIVERSE.forEach((u) => { M[u.id] = { ltp: 0, prev: 0, open: 0, hi: 0, lo: 0, v: 0, t: 0, ok: false, spark: [], sess: null, fetched: 0 }; });
+export const ids = (seg) => UNIVERSE.filter((u) => u.seg === seg && M[u.id].ok).map((u) => u.id);
+export const DAY = 375;
 export const TF = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '1D': DAY };
+const CFG = { 1: ['1m', '5d'], 5: ['5m', '1mo'], 15: ['15m', '1mo'], 60: ['60m', '6mo'], 375: ['1d', '2y'] };
 
-function build(u) {
-  const r = mulberry(hash(u.id));
-  let p = u.base * 0.97;
-  const t0 = Date.now() - NB * 60000;
-  const cs = [];
-  for (let i = 0; i < NB; i++) {
-    const o = p, c = o * (1 + u.vol * gauss(r) + 0.00001);
-    const h = Math.max(o, c) * (1 + Math.abs(gauss(r)) * u.vol * 0.4);
-    const l = Math.min(o, c) * (1 - Math.abs(gauss(r)) * u.vol * 0.4);
-    cs.push({ t: t0 + i * 60000, o, h, l, c, v: Math.round(800 + r() * 6000) });
-    p = c;
+/* ---------- connection ---------- */
+const FRESH = 20 * 60 * 1000; // a price older than 20 minutes during a session counts as not live
+let proxy = '';
+try { proxy = localStorage.getItem('finora.feed') || (window.FINORA_FEED && window.FINORA_FEED.proxy) || ''; } catch (e) { /* ignore */ }
+export const getProxy = () => proxy;
+export const feed = { status: 'connecting', err: '', lastOk: 0, loaded: 0 };
+let notifier = () => {};
+export const setNotifier = (f) => { notifier = f; };
+const HOSTS = { yf: ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'], mf: ['https://api.mfapi.in'] };
+export async function getJSON(kind, path, ms = 12000) {
+  const urls = proxy ? [proxy.replace(/\/+$/, '') + '/' + kind + path] : HOSTS[kind].map((h) => h + path);
+  let last;
+  for (const u of urls) {
+    const ac = new AbortController(), t = setTimeout(() => ac.abort(), ms);
+    try { const r = await fetch(u, { signal: ac.signal, cache: 'no-store' }); clearTimeout(t); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); }
+    catch (e) { clearTimeout(t); last = e.name === 'AbortError' ? new Error('timed out') : e; }
   }
-  const k = u.base / cs[NB - 1].c;
-  cs.forEach((x) => { x.o *= k; x.h *= k; x.l *= k; x.c *= k; });
-  const day = cs.slice(NB - DAY);
-  M[u.id] = {
-    c: cs, shifted: 0, vol: u.vol, ltp: cs[NB - 1].c, prev: cs[NB - 1 - DAY].c, open: day[0].o,
-    hi: Math.max(...day.map((x) => x.h)), lo: Math.min(...day.map((x) => x.l)), v: day.reduce((a, x) => a + x.v, 0),
-    rangeHi: Math.max(...cs.map((x) => x.h)), rangeLo: Math.min(...cs.map((x) => x.l)),
-  };
+  throw last || new Error('failed');
 }
-UNIVERSE.forEach(build);
+export function setProxy(v) { proxy = (v || '').trim(); try { proxy ? localStorage.setItem('finora.feed', proxy) : localStorage.removeItem('finora.feed'); } catch (e) { /* ignore */ } series.clear(); feed.status = 'connecting'; notifier(); refreshAll(true); }
 
-/* ---------- trading sessions (IST, Monday to Friday; exchange holidays are not included) ---------- */
-let force = false;
-export const setForceOpen = (v) => { force = !!v; };
-export const forced = () => force;
-function ist() {
-  const f = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short', hour: 'numeric', minute: 'numeric', hour12: false }).formatToParts(new Date()), o = {};
-  f.forEach((p) => (o[p.type] = p.value));
-  return { wd: o.weekday, m: (+o.hour % 24) * 60 + +o.minute };
-}
-export const SESSIONS = { EQ: [555, 930, 'NSE and BSE 9:15 AM to 3:30 PM'], ETF: [555, 930, 'NSE and BSE 9:15 AM to 3:30 PM'], IDX: [555, 930, 'NSE and BSE 9:15 AM to 3:30 PM'], COM: [540, 1410, 'MCX 9:00 AM to 11:30 PM'], CUR: [540, 1020, 'Currency 9:00 AM to 5:00 PM'] };
-export function sessionOpen(seg) {
-  const { wd, m } = ist(), s = SESSIONS[seg] || SESSIONS.EQ;
-  return !['Sat', 'Sun'].includes(wd) && m >= s[0] && m < s[1];
-}
-export const marketOpen = (seg) => force || sessionOpen(seg);
-
-let tickN = 0;
-export function tick() {
-  tickN++;
-  for (const id in M) {
-    if (!marketOpen(META.get(id).seg)) continue;
-    const m = M[id], cs = m.c, last = cs[cs.length - 1];
-    const p = clamp(last.c * (1 + m.vol * gauss(Math.random) * 0.9), m.prev * 0.9, m.prev * 1.1);
-    last.c = p; last.h = Math.max(last.h, p); last.l = Math.min(last.l, p);
-    const dv = Math.round(Math.random() * 400); last.v += dv;
-    m.ltp = p; m.hi = Math.max(m.hi, p); m.lo = Math.min(m.lo, p); m.v += dv;
-    m.rangeHi = Math.max(m.rangeHi, p); m.rangeLo = Math.min(m.rangeLo, p);
-    if (tickN % 20 === 0) {
-      cs.push({ t: last.t + 60000, o: p, h: p, l: p, c: p, v: 0 });
-      if (cs.length > NB + 800) { cs.shift(); m.shifted++; }
-    }
+const num = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
+function parseCandles(r) {
+  const ts = r.timestamp || [], q = (r.indicators && r.indicators.quote && r.indicators.quote[0]) || {}, out = [];
+  for (let i = 0; i < ts.length; i++) {
+    const c = num(q.close && q.close[i]), o = num(q.open && q.open[i]) ?? c; if (c == null) continue;
+    out.push({ t: ts[i] * 1000, o, h: Math.max(num(q.high && q.high[i]) ?? c, o, c), l: Math.min(num(q.low && q.low[i]) ?? c, o, c), c, v: num(q.volume && q.volume[i]) || 0 });
   }
-}
-export const ltp = (id) => M[id].ltp;
-export const chg = (id) => M[id].ltp - M[id].prev;
-export const chgp = (id) => ((M[id].ltp - M[id].prev) / M[id].prev) * 100;
-
-const cache = new Map();
-export function agg(id, k) {
-  const m = M[id], cs = m.c;
-  if (k === 1) return cs;
-  const last = cs[cs.length - 1], key = id + k, c = cache.get(key);
-  if (c && c.len === cs.length && c.lc === last.c && c.sh === m.shifted) return c.out;
-  const out = [];
-  let g = -1, cur = null;
-  for (let i = 0; i < cs.length; i++) {
-    const gi = Math.floor((i + m.shifted) / k), x = cs[i];
-    if (gi !== g) { if (cur) out.push(cur); g = gi; cur = { t: x.t, o: x.o, h: x.h, l: x.l, c: x.c, v: x.v }; }
-    else { if (x.h > cur.h) cur.h = x.h; if (x.l < cur.l) cur.l = x.l; cur.c = x.c; cur.v += x.v; }
-  }
-  if (cur) out.push(cur);
-  cache.set(key, { len: cs.length, lc: last.c, sh: m.shifted, out });
   return out;
+}
+const chartPath = (y, interval, range) => `/v8/finance/chart/${encodeURIComponent(y)}?interval=${interval}&range=${range}&includePrePost=false`;
+
+function applyQuote(id, meta, cs) {
+  const m = M[id], price = num(meta.regularMarketPrice), prev = num(meta.chartPreviousClose) ?? num(meta.previousClose);
+  if (!(price > 0) || !(prev > 0)) return false;
+  m.ltp = price; m.prev = prev; m.t = (num(meta.regularMarketTime) || 0) * 1000;
+  m.hi = num(meta.regularMarketDayHigh) ?? (cs.length ? Math.max(...cs.map((x) => x.h)) : price); m.lo = num(meta.regularMarketDayLow) ?? (cs.length ? Math.min(...cs.map((x) => x.l)) : price);
+  m.v = num(meta.regularMarketVolume) ?? cs.reduce((a, x) => a + x.v, 0); m.open = cs.length ? cs[0].o : price;
+  if (cs.length) m.spark = cs.map((x) => x.c);
+  const p = meta.currentTradingPeriod && meta.currentTradingPeriod.regular; m.sess = p ? [p.start * 1000, p.end * 1000] : null;
+  m.fetched = Date.now(); if (!m.ok) { m.ok = true; feed.loaded++; }
+  patchSeries(id, price, m.t); return true;
+}
+async function loadQuote(u) {
+  const j = await getJSON('yf', chartPath(u.y, '5m', '1d')), r = j && j.chart && j.chart.result && j.chart.result[0];
+  if (!r || !r.meta) throw new Error('no data');
+  return applyQuote(u.id, r.meta, parseCandles(r));
+}
+let running = false, failStreak = 0;
+export async function refreshAll(force) {
+  if (running && !force) return; running = true;
+  const q = UNIVERSE.slice(); let okN = 0, errMsg = '';
+  await Promise.all(Array.from({ length: 6 }, async () => { while (q.length) { const u = q.shift(); try { if (await loadQuote(u)) okN++; } catch (e) { errMsg = e.message || 'failed'; } } }));
+  running = false;
+  if (okN > 0) { feed.status = 'ok'; feed.err = ''; feed.lastOk = Date.now(); failStreak = 0; }
+  else if (!feed.loaded) { feed.status = 'error'; feed.err = errMsg || 'unreachable'; failStreak++; }
+  notifier();
+}
+let focusId = null;
+export const focusSymbol = (id) => { focusId = id; };
+export function startFeed() {
+  refreshAll();
+  setInterval(() => { const live = isLive('NIFTY') || isLive('RELIANCE'); if (feed.status !== 'ok' || document.hidden) { if (feed.status !== 'ok') refreshAll(); return; } if (Date.now() - feed.lastOk > (live ? 20000 : 300000)) refreshAll(); }, 5000);
+  setInterval(async () => { const u = focusId && META.get(focusId); if (!u || document.hidden || feed.status !== 'ok' || !isLive(focusId)) return; try { await loadQuote(u); notifier(); } catch (e) { /* keep last */ } }, 5000);
+  addEventListener('online', () => refreshAll(true));
+}
+
+/* ---------- sessions and freshness ---------- */
+export const SESSIONS = { EQ: 'NSE and BSE 9:15 AM to 3:30 PM IST, Monday to Friday', ETF: 'NSE and BSE 9:15 AM to 3:30 PM IST, Monday to Friday', IDX: 'NSE and BSE 9:15 AM to 3:30 PM IST, Monday to Friday', CUR: 'Forex rates, nearly 24 hours on weekdays' };
+export function isLive(id) {
+  const m = M[id]; if (!m || !m.ok) return false; const n = Date.now();
+  return (!m.sess || (n >= m.sess[0] && n <= m.sess[1])) && n - m.t < FRESH;
+}
+export const marketOpen = (seg) => UNIVERSE.some((u) => u.seg === seg && isLive(u.id)) ;
+export const priceMode = (id) => (isLive(id) ? 'Live' : 'Close');
+export const asOf = (id) => { const t = M[id] && M[id].t; return t ? new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(t) + ' IST' : ''; };
+export const ltp = (id) => M[id].ltp;
+export const chg = (id) => (M[id].prev ? M[id].ltp - M[id].prev : 0);
+export const chgp = (id) => (M[id].prev ? ((M[id].ltp - M[id].prev) / M[id].prev) * 100 : 0);
+
+/* ---------- candle series (real, loaded on demand) ---------- */
+const series = new Map(), EMPTY = []; let inflight = 0;
+function want(id, k) {
+  const key = id + '|' + k, s = series.get(key), n = Date.now();
+  if (s && (s.loading || n - s.at < (isLive(id) ? 300000 : 1800000))) return;
+  if (inflight >= 5) return;
+  const cur = s || { c: [], at: 0, loading: false }; cur.loading = true; series.set(key, cur); inflight++;
+  const [iv, rg] = CFG[k] || CFG[15];
+  getJSON('yf', chartPath(META.get(id).y, iv, rg)).then((j) => {
+    const r = j.chart.result[0]; cur.c = parseCandles(r); cur.at = Date.now(); cur.loading = false; cur.err = ''; inflight--; notifier();
+  }).catch((e) => { inflight--; cur.loading = false; cur.at = Date.now() - 270000; cur.err = e.message; });
+}
+export function agg(id, k) { if (!META.get(id)) return EMPTY; want(id, k); const s = series.get(id + '|' + k); return s ? s.c : EMPTY; }
+export const seriesState = (id, k) => { const s = series.get(id + '|' + k); return s ? (s.loading ? 'loading' : s.err && !s.c.length ? 'error' : s.c.length ? 'ok' : 'loading') : 'loading'; };
+export const preload = (id, k) => { want(id, k); };
+function patchSeries(id, price, t) {
+  for (const [key, s] of series) {
+    if (!key.startsWith(id + '|') || !s.c.length) continue;
+    const k = +key.split('|')[1], ms = (k === DAY ? 864e5 : k * 6e4), last = s.c[s.c.length - 1];
+    if (t >= last.t + ms) { const nt = last.t + Math.floor((t - last.t) / ms) * ms; s.c.push({ t: nt, o: price, h: price, l: price, c: price, v: 0 }); }
+    else { last.c = price; if (price > last.h) last.h = price; if (price < last.l) last.l = price; }
+  }
 }
 
 /* ---------- indicators ---------- */
@@ -157,7 +151,8 @@ export function boll(a, n = 20, k = 2) {
 }
 
 export function technicals(id) {
-  const cs = agg(id, 15).map((x) => x.c), last = cs[cs.length - 1];
+  const d = agg(id, DAY); if (d.length < 30) return null;
+  const cs = d.map((x) => x.c), last = cs[cs.length - 1];
   const R = rsi(cs)[cs.length - 1], MC = macd(cs).h[cs.length - 1];
   const E20 = ema(cs, 20).pop(), E50 = ema(cs, 50).pop(), S50 = sma(cs, 50).pop(), S200 = sma(cs, 200).pop(), B = boll(cs);
   const bu = B.up[cs.length - 1], bl = B.lo[cs.length - 1];
@@ -177,40 +172,5 @@ export function technicals(id) {
 
 export function searchSyms(q, limit = 8) {
   const v = q.trim().toUpperCase(); if (!v) return [];
-  return UNIVERSE.filter((u) => u.id.includes(v) || u.name.toUpperCase().includes(v)).sort((a, b) => (b.id.startsWith(v) ? 1 : 0) - (a.id.startsWith(v) ? 1 : 0)).slice(0, limit);
-}
-
-/* ---------- derivatives helpers ---------- */
-export function ncdf(x) { const s = x < 0 ? -1 : 1; x = Math.abs(x) / Math.SQRT2; const t = 1 / (1 + 0.3275911 * x); const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x); return 0.5 * (1 + s * y); }
-export function bs(S0, K, T, type, iv = 0.13) {
-  const lm = Math.log(K / S0), sig = iv + 1.5 * lm * lm, r = 0.065, sq = sig * Math.sqrt(T);
-  const d1 = (Math.log(S0 / K) + (r + (sig * sig) / 2) * T) / sq, d2 = d1 - sq;
-  return Math.max(0.05, type === 'CE' ? S0 * ncdf(d1) - K * Math.exp(-r * T) * ncdf(d2) : K * Math.exp(-r * T) * ncdf(-d2) - S0 * ncdf(-d1));
-}
-export function greeks(S0, K, T, type, iv = 0.13) {
-  const lm = Math.log(K / S0), sig = iv + 1.5 * lm * lm, r = 0.065, sq = sig * Math.sqrt(T);
-  const d1 = (Math.log(S0 / K) + (r + (sig * sig) / 2) * T) / sq;
-  const pdf = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI);
-  return { delta: type === 'CE' ? ncdf(d1) : ncdf(d1) - 1, gamma: pdf / (S0 * sq), vega: (S0 * pdf * Math.sqrt(T)) / 100, iv: sig * 100 };
-}
-export const yrs = (e) => Math.max((new Date(e + 'T15:30:00').getTime() - Date.now()) / (365 * 864e5), 1 / (365 * 24));
-export function expiriesFor(u) {
-  const out = [], now = new Date();
-  if (u.seg === 'IDX') {
-    const d = new Date(now); d.setHours(15, 30, 0, 0);
-    while (out.length < 3) { d.setDate(d.getDate() + 1); if (d.getDay() === 4) out.push(ymd(d)); }
-  } else {
-    for (let m = 0; out.length < 3 && m < 6; m++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + m + 1, 0, 15, 30);
-      while (d.getDay() !== 4) d.setDate(d.getDate() - 1);
-      if (d > now) out.push(ymd(d));
-    }
-  }
-  return out;
-}
-export const optId = (u, k, t, e) => [u, k, t, e].join('|');
-export const futId = (u, e) => u + '|FUT|' + e;
-export function oiFor(und, k, type, spot, step) {
-  const d = Math.abs(k - spot) / step;
-  return 6 + mulberry(hash(und + k + type))() * 40 * Math.exp(-d / 8) + (type === 'CE' ? (k > spot ? 10 : 0) : k < spot ? 10 : 0);
+  return UNIVERSE.filter((u) => M[u.id].ok && (u.id.includes(v) || u.name.toUpperCase().includes(v))).sort((a, b) => (b.id.startsWith(v) ? 1 : 0) - (a.id.startsWith(v) ? 1 : 0)).slice(0, limit);
 }

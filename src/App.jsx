@@ -10,9 +10,8 @@ import Markets from './pages/Markets.jsx';
 import Watchlist from './pages/Watchlist.jsx';
 import Charts from './pages/Charts.jsx';
 import Stock from './pages/Stock.jsx';
-import Derivatives from './pages/Derivatives.jsx';
+import Currency from './pages/Currency.jsx';
 import MutualFunds from './pages/MutualFunds.jsx';
-import IPO from './pages/IPO.jsx';
 import Orders from './pages/Orders.jsx';
 import Portfolio from './pages/Portfolio.jsx';
 import Funds from './pages/Funds.jsx';
@@ -25,8 +24,8 @@ import Settings from './pages/Settings.jsx';
 
 const ROUTES = {
   '/': ['Home', Home], '/markets': ['Markets', Markets], '/watchlist': ['Watchlists', Watchlist], '/charts': ['Charts', Charts, true],
-  '/derivatives': ['Futures and options', () => <Derivatives seg="IDX" />], '/commodities': ['Commodities', () => <Derivatives seg="COM" />], '/currency': ['Currency', () => <Derivatives seg="CUR" />],
-  '/mutual-funds': ['Mutual funds', MutualFunds], '/ipo': ['IPO', IPO], '/orders': ['Orders', Orders], '/portfolio': ['Portfolio', Portfolio], '/funds': ['Funds', Funds],
+  '/currency': ['Currency', Currency],
+  '/mutual-funds': ['Mutual funds', MutualFunds], '/orders': ['Orders', Orders], '/portfolio': ['Portfolio', Portfolio], '/funds': ['Funds', Funds],
   '/reports': ['Reports', Reports], '/scanner': ['Scanner', Scanner], '/alerts': ['Alerts', Alerts], '/learn': ['Learn', Learn], '/tools': ['Tools', Tools], '/settings': ['Settings', Settings],
 };
 

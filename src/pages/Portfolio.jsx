@@ -46,7 +46,7 @@ export default function Portfolio() {
   const S = getS(), [tab, setTab] = useState('holdings');
   const e = equity(), day = dayPnl(), hv = holdMV(), hc = holdCost(), un = unreal(), mv = mfValue(), mi = mfInvested();
   const pts = S.eq.length > 2 ? S.eq.map((x) => x.v) : [S.start, e];
-  const parts = [{ n: 'Cash', v: S.cash - blocked() > 0 ? S.cash : S.cash, c: '#4FA3FF' }, { n: 'Stocks and ETFs', v: hv, c: '#6B5BF5' }, { n: 'Mutual funds', v: mv, c: '#22C55E' }, { n: 'IPO funds blocked', v: S.ipoBlocked, c: '#F5B700' }, { n: 'F&O unrealized', v: Math.abs(un), c: '#FB5A74' }];
+  const parts = [{ n: 'Cash', v: S.cash - blocked() > 0 ? S.cash : S.cash, c: '#4FA3FF' }, { n: 'Stocks and ETFs', v: hv, c: '#6B5BF5' }, { n: 'Mutual funds', v: mv, c: '#22C55E' }, { n: 'Open positions P&L', v: Math.abs(un), c: '#FB5A74' }];
   return (
     <div className="page">
       <div className="row between wrapr"><h1>Portfolio</h1><span className="chip sim">VIRTUAL MONEY</span></div>
@@ -66,7 +66,7 @@ export default function Portfolio() {
       </div>
       <Pills label="View" value={tab} onChange={setTab} options={[['holdings', `Holdings (${Object.keys(S.holdings).length})`], ['positions', `Positions (${Object.keys(S.positions).length})`]]} />
       <Card flush>{tab === 'holdings' ? <HoldingsTable /> : <PositionsTable />}</Card>
-      <div className="mut sm">Mutual fund and IPO details are on their own pages: <Link to="/mutual-funds">Mutual funds</Link> and <Link to="/ipo">IPO</Link>.</div>
+      <div className="mut sm">Mutual fund details are on the <Link to="/mutual-funds">Mutual funds</Link> page.</div>
     </div>
   );
 }

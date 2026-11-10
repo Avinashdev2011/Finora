@@ -1,35 +1,35 @@
-// DEMO mutual funds. These are fictional funds with generated NAV histories, not real schemes.
-import { mulberry, hash, gauss, dayNum } from './util.js';
+// Real mutual fund NAVs from AMFI data via mfapi.in (public, free). NAV is the last published end-of-day NAV.
+import { getJSON, getProxy } from './market.js';
 
-export const FUNDS = [
-  { id: 'D-LARGE', name: 'Demo Large Cap Fund', cat: 'Equity', sub: 'Large cap', risk: 'Very high', base: 100, mu: 0.12, sig: 0.15, exit: '1% if before 1 year' },
-  { id: 'D-FLEXI', name: 'Demo Flexi Cap Fund', cat: 'Equity', sub: 'Flexi cap', risk: 'Very high', base: 80, mu: 0.14, sig: 0.17, exit: '1% if before 1 year' },
-  { id: 'D-MID', name: 'Demo Mid Cap Fund', cat: 'Equity', sub: 'Mid cap', risk: 'Very high', base: 120, mu: 0.17, sig: 0.21, exit: '1% if before 1 year' },
-  { id: 'D-SMALL', name: 'Demo Small Cap Fund', cat: 'Equity', sub: 'Small cap', risk: 'Very high', base: 60, mu: 0.19, sig: 0.26, exit: '1% if before 1 year' },
-  { id: 'D-ELSS', name: 'Demo Tax Saver Fund', cat: 'Equity', sub: 'ELSS', risk: 'Very high', base: 90, mu: 0.14, sig: 0.17, exit: '3 year lock-in (not enforced in demo)' },
-  { id: 'D-NIFTY', name: 'Demo Nifty 50 Index Fund', cat: 'Index', sub: 'Index', risk: 'Very high', base: 150, mu: 0.11, sig: 0.14, exit: 'Nil' },
-  { id: 'D-HYBRID', name: 'Demo Balanced Advantage Fund', cat: 'Hybrid', sub: 'Balanced', risk: 'High', base: 40, mu: 0.095, sig: 0.08, exit: '1% if before 1 year' },
-  { id: 'D-DEBT', name: 'Demo Short Duration Debt Fund', cat: 'Debt', sub: 'Short duration', risk: 'Moderate', base: 30, mu: 0.07, sig: 0.012, exit: 'Nil' },
-  { id: 'D-LIQUID', name: 'Demo Liquid Fund', cat: 'Debt', sub: 'Liquid', risk: 'Low', base: 1000, mu: 0.062, sig: 0.002, exit: 'Nil' },
-  { id: 'D-GOLD', name: 'Demo Gold Savings Fund', cat: 'Gold', sub: 'Gold', risk: 'High', base: 25, mu: 0.09, sig: 0.13, exit: '1% if before 15 days' },
-];
-export const FUND = Object.fromEntries(FUNDS.map((f) => [f.id, f]));
+const cache = new Map(); // code -> { code, name, house, cat, navs:[{t,n}] oldest first, at }
+let notifier = () => {};
+export const setMfNotifier = (f) => { notifier = f; };
+const pd = (s) => { const [d, m, y] = s.split('-'); return Date.UTC(+y, +m - 1, +d); };
 
-const ANCHOR = 19600, series = {};
-function ensure(f, dn) {
-  let s = series[f.id];
-  const need = dn - ANCHOR + 1;
-  if (!s) s = series[f.id] = { a: [f.base], r: mulberry(hash(f.id)) };
-  while (s.a.length < need) {
-    const prev = s.a[s.a.length - 1];
-    s.a.push(prev * Math.exp(f.mu / 365 - (f.sig * f.sig) / 730 + (f.sig / Math.sqrt(365)) * gauss(s.r)));
-  }
-  return s.a;
+export async function searchFunds(q) {
+  const j = await getJSON('mf', '/mf/search?q=' + encodeURIComponent(q));
+  return (Array.isArray(j) ? j : []).slice(0, 40).map((x) => ({ code: String(x.schemeCode), name: x.schemeName }));
 }
-export const navOn = (f, dn) => ensure(f, dn)[Math.max(0, dn - ANCHOR)];
-export const navNow = (f) => navOn(f, dayNum());
-export function navSeries(f, days) { const dn = dayNum(); return Array.from({ length: days + 1 }, (_, i) => navOn(f, dn - days + i)); }
-export function returns(f, days) {
-  const dn = dayNum(), a = navOn(f, dn), b = navOn(f, dn - days), r = a / b - 1;
-  return days > 365 ? Math.pow(a / b, 365 / days) - 1 : r;
+export async function loadFund(code, force) {
+  const c = cache.get(code);
+  if (c && !force && Date.now() - c.at < 6 * 36e5) return c;
+  const j = await getJSON('mf', '/mf/' + code, 20000);
+  if (!j || !Array.isArray(j.data) || !j.data.length) throw new Error('No NAV data');
+  const navs = j.data.map((x) => ({ t: pd(x.date), n: parseFloat(x.nav) })).filter((x) => x.n > 0).reverse();
+  const m = j.meta || {}, f = { code, name: m.scheme_name || 'Fund ' + code, house: m.fund_house || '', cat: m.scheme_category || '', type: m.scheme_type || '', navs, at: Date.now() };
+  cache.set(code, f); notifier(); return f;
 }
+export const fundInfo = (code) => cache.get(code) || null;
+export const navNow = (code) => { const f = cache.get(code); return f ? f.navs[f.navs.length - 1].n : 0; };
+export const navDate = (code) => { const f = cache.get(code); return f ? new Date(f.navs[f.navs.length - 1].t).toISOString().slice(0, 10) : ''; };
+export function returns(code) {
+  const f = cache.get(code); if (!f) return null;
+  const last = f.navs[f.navs.length - 1], out = {};
+  [['1M', 30], ['6M', 182], ['1Y', 365], ['3Y', 1095], ['5Y', 1826]].forEach(([k, d]) => {
+    const t = last.t - d * 864e5; if (f.navs[0].t > t + 5 * 864e5) { out[k] = null; return; }
+    let p = f.navs[0]; for (const x of f.navs) { if (x.t <= t) p = x; else break; }
+    const yrs = d / 365; out[k] = d >= 365 ? (Math.pow(last.n / p.n, 1 / yrs) - 1) * 100 : (last.n / p.n - 1) * 100;
+  });
+  return out;
+}
+export const mfProxyNote = () => (getProxy() ? 'via your data proxy' : 'direct from mfapi.in');

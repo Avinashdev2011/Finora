@@ -27,7 +27,7 @@ export default function Charts() {
       <div className="ctabs" role="tablist" aria-label="Chart views">
         <button role="tab" aria-selected="true">Chart</button>
         <button role="tab" aria-selected="false" onClick={() => go('/stock/' + sym)}>Overview</button>
-        <button role="tab" aria-selected="false" onClick={() => go('/derivatives')}>Option Chain</button>
+        <button role="tab" aria-selected="false" onClick={() => go('/markets')}>Markets</button>
         <span className="grow" /><span className="chip sim hide-s">SIMULATED</span>
       </div>
       <div className="tbar">
@@ -67,7 +67,7 @@ export default function Charts() {
           {rt === 'info' && (
             <div className="tk"><div><h3>{META.get(sym).name}</h3><div className="mut">{sym} · {META.get(sym).sec}</div></div>
               <div className="kv2">{[['Open', fmt(m.open)], ['Prev close', fmt(m.prev)], ['Day high', fmt(m.hi)], ['Day low', fmt(m.lo)], ['Volume', fmt(m.v, 0)], ['Lot size', META.get(sym).lot || 1]].map(([k, v]) => <div key={k}><small>{k}</small><b className="mono">{v}</b></div>)}</div>
-              <div className="mut sm">Prices are simulated and frozen when the market is closed.</div></div>)}
+              <div className="mut sm">Real prices from a public delayed feed. When the market is closed you see the last close.</div></div>)}
         </div>
       </aside>
     </div>

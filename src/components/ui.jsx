@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FiX, FiSearch } from 'react-icons/fi';
-import { M, META, chg, chgp, searchSyms, marketOpen, SESSIONS } from '../lib/market.js';
+import { M, META, chg, chgp, searchSyms, marketOpen, SESSIONS, isLive, asOf, feed } from '../lib/market.js';
 import { pc, sg, cl } from '../lib/util.js';
 import { openTicket } from '../lib/ui.js';
 
@@ -80,7 +80,7 @@ export function Spark({ id, height = 46, data, color }) {
       const w = cv.clientWidth || 200, h = cv.clientHeight || height, dpr = devicePixelRatio || 1;
       cv.width = w * dpr; cv.height = h * dpr;
       const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const cs = data || M[id].c.slice(-90).map((x) => x.c);
+      const cs = data || M[id].spark; if (!cs || cs.length < 2) return;
       const up = data ? cs[cs.length - 1] >= cs[0] : chg(id) >= 0;
       const css = getComputedStyle(document.documentElement);
       const col = color || css.getPropertyValue(up ? '--up' : '--dn').trim();
@@ -127,6 +127,14 @@ export function SymbolPicker({ onPick, placeholder = 'Search symbol', filter, au
 export { META };
 
 export function ClosedBanner({ seg = 'EQ' }) {
+  if (feed.status !== 'ok') return null;
   if (marketOpen(seg)) return null;
-  return <div className="banner">Market is closed ({(SESSIONS[seg] || SESSIONS.EQ)[2]}, Monday to Friday). Prices and charts are frozen at the last close, and orders cannot be placed until it opens.</div>;
+  return <div className="banner">Market is closed ({SESSIONS[seg] || SESSIONS.EQ}). You are seeing the last close. Prices update and orders open when the market opens.</div>;
+}
+
+/* Shows whether a price is live or the last close, with the real timestamp of that price. */
+export function PriceMode({ id }) {
+  if (!M[id] || !M[id].ok) return null;
+  const live = isLive(id);
+  return <span className={'pmode' + (live ? ' live' : '')} title={'Price as of ' + asOf(id)}><i className="dot on" style={live ? undefined : { background: 'var(--mut)' }} />{live ? 'Live' : 'Close'} · {asOf(id)}</span>;
 }

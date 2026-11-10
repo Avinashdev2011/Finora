@@ -1,22 +1,22 @@
-import { useLive, getS, equity, dayPnl, available, holdMV, unreal, mfValue, blocked, IPOS, ipoStatus } from '../lib/engine.js';
+import { useLive, getS, equity, dayPnl, available, holdMV, unreal, mfValue, blocked } from '../lib/engine.js';
 import { M, ids, UNIVERSE, chgp, chg } from '../lib/market.js';
 import { fmt, inr, sg, pc, cl, arrow } from '../lib/util.js';
 import { Link, go } from '../lib/router.jsx';
 import { openTicket } from '../lib/ui.js';
-import { Card, Spark, Table, TB, Chg, Stat } from '../components/ui.jsx';
+import { Card, Spark, Table, TB, Chg, Stat, PriceMode, ClosedBanner } from '../components/ui.jsx';
 
 export default function Home() {
   useLive();
   const S = getS(), e = equity(), day = dayPnl(), h = new Date().getHours();
   const hello = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  const eq = UNIVERSE.filter((u) => u.seg === 'EQ');
+  const eq = UNIVERSE.filter((u) => u.seg === 'EQ' && M[u.id].ok);
   const movers = [...eq].sort((a, b) => chgp(b.id) - chgp(a.id)), top = movers.slice(0, 5), low = movers.slice(-3).reverse();
-  const watch = (S.wls[S.wl] || []).filter((s) => M[s]).slice(0, 7);
+  const watch = (S.wls[S.wl] || []).filter((s) => M[s] && M[s].ok).slice(0, 7);
   const posN = Object.keys(S.positions).length, openOrd = S.orders.filter((o) => o.status === 'OPEN').length, gtt = S.gtts.filter((g) => g.status === 'ACTIVE').length;
-  const ipoOpen = IPOS.filter((x) => ipoStatus(x) === 'OPEN').length;
   const curve = S.eq.length > 2 ? S.eq.map((x) => x.v) : null;
   return (
     <div className="page">
+      <ClosedBanner seg="EQ" />
       <div className="hero card">
         <div className="grow">
           <div className="mut">{hello}, {S.name}</div>
@@ -25,11 +25,10 @@ export default function Home() {
           <div className="row" style={{ marginTop: 14 }}>
             <button className="btn buy" onClick={() => openTicket('RELIANCE', 'BUY')}>Buy / Sell</button>
             <button className="btn" onClick={() => go('/funds')}>Add funds</button>
-            <button className="btn" onClick={() => go('/derivatives')}>Option chain</button>
-            <button className="btn" onClick={() => go('/ipo')}>IPO{ipoOpen ? ` (${ipoOpen} open)` : ''}</button>
+            <button className="btn" onClick={() => go('/mutual-funds')}>Mutual funds</button>
           </div>
         </div>
-        <div className="herochart">{curve ? <Spark data={curve} height={92} /> : <div className="mut sm">Your equity curve appears here as the simulator runs.</div>}</div>
+        <div className="herochart">{curve ? <Spark data={curve} height={92} /> : <div className="mut sm">Your equity curve appears here while market data is connected.</div>}</div>
       </div>
 
       <div className="grid g4">
@@ -44,12 +43,12 @@ export default function Home() {
       </div>
 
       <div className="grid g3">
-        {['NIFTY', 'BANKNIFTY', 'SENSEX'].map((s) => (
+        {['NIFTY', 'BANKNIFTY', 'SENSEX'].filter((s) => M[s].ok).map((s) => (
           <Link key={s} to={'/stock/' + s} className="card lnk">
             <div className="row between mut"><span>{M && s}</span><span>{s === 'SENSEX' ? 'BSE' : 'NSE'}</span></div>
             <div className="mono xl">{fmt(M[s].ltp)}</div>
             <div className={'mono ' + cl(chg(s))}>{arrow(chg(s))} {sg(chg(s))} ({pc(chgp(s))})</div>
-            <Spark id={s} />
+            <Spark id={s} /><PriceMode id={s} />
           </Link>
         ))}
       </div>
@@ -67,7 +66,7 @@ export default function Home() {
       </div>
 
       <div className="grid g3 tiles">
-        {[['/charts', 'Charts', 'Candles, indicators and drawing tools'], ['/scanner', 'Scanner', 'Find oversold, overbought and breakout stocks'], ['/mutual-funds', 'Mutual funds', 'Lumpsum and SIP with demo funds'], ['/commodities', 'Commodities', 'Gold, silver, crude oil futures'], ['/learn', 'Learn', 'Short lessons on orders, options and risk'], ['/tools', 'Calculators', 'SIP, EMI, brokerage and position size']].map(([k, n, d]) => (
+        {[['/charts', 'Charts', 'Candles, indicators and drawing tools'], ['/scanner', 'Scanner', 'Find oversold, overbought and breakout stocks'], ['/mutual-funds', 'Mutual funds', 'Real NAVs, lumpsum and SIP'], ['/markets', 'Markets', 'Movers, sectors and heatmap'], ['/learn', 'Learn', 'Short lessons on orders and risk'], ['/tools', 'Calculators', 'SIP, EMI, brokerage and position size']].map(([k, n, d]) => (
           <Link key={k} to={k} className="card lnk tile"><b>{n}</b><span className="mut sm">{d}</span></Link>
         ))}
       </div>
